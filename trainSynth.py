@@ -22,10 +22,11 @@ from loss.mseloss import Maploss, Maploss_v2, Maploss_v3
 from data.dataset import SynthTextDataLoader
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils.util import save_parser
-
+from config import config
 
 parser = argparse.ArgumentParser(description='CRAFT SynthText Train')
 parser.add_argument('--yaml_path', default='./exp/synthtext/', type=str, help='Load configuration')
+parser.add_argument('--config_name', default='./exp/synthtext/', type=str, help='Load configuration')
 args = parser.parse_args()
 
 
@@ -97,7 +98,7 @@ def main_worker(gpu, ngpus_per_node):
 
     import ipdb;ipdb.set_trace()
     synthData_dir = {"synthtext": args.synthData_dir}
-    synthDataLoader = SynthTextDataLoader(args, target_size=768, data_paths=args.synthData_dir)
+    synthDataLoader = SynthTextDataLoader(target_size=config.train.data.output_size, data_dir=config.data_dir.synthtext, logging=config.train.data.logging)
 
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(synthDataLoader)
