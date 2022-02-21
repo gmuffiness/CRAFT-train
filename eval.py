@@ -15,8 +15,7 @@ import numpy as np
 from tqdm import tqdm
 
 from model.craft import CRAFT
-from data.load_icdar import load_icdar2015_gt, load_icdar2013_gt, load_synthtext_gt
-from utils.inference_boxes import test_net
+from utils.inference_boxes import test_net, load_icdar2015_gt, load_icdar2013_gt, load_synthtext_gt
 from collections import OrderedDict
 from metrics.eval_det_iou import DetectionIoUEvaluator
 

@@ -14,6 +14,7 @@ import torch.utils.data as data
 import torchvision.transforms as transforms
 
 from utils import config
+from utils.util import saveInput, saveImage
 from data import imgproc
 from data.imgaug import random_scale,random_scale2, random_crop
 
@@ -23,7 +24,7 @@ from data.imgaug import random_scale,random_scale2, random_crop
 class SynthTextDataLoader(data.Dataset):
 
 
-    def __init__(self, target_size=768, data_paths='', viz=False ):
+    def __init__(self, args, target_size=768, data_paths='', viz=False ):
 
         self.target_size = target_size
         self.data_paths = data_paths
@@ -35,7 +36,7 @@ class SynthTextDataLoader(data.Dataset):
 
     def load_synthtext(self):
 
-        gt = scio.loadmat(os.path.join(self.data_dir_list["synthtext"], 'gt.mat'))
+        gt = scio.loadmat(os.path.join(self.data_paths, 'gt.mat'))
         wordbox = gt['wordBB'][0]
         charbox = gt['charBB'][0]
         imnames = gt['imnames'][0]
@@ -65,9 +66,9 @@ class SynthTextDataLoader(data.Dataset):
 
         rnd_range = [0.5, 1.0, 1.5]
         scale = random.sample(rnd_range, 1)[0]
-        image = random_scale2(image, min_size=self.target_size, rnd_sclae=scale, bboxes=_charbox)
-        region_score = random_scale2(image, min_size=self.target_size, rnd_sclae=scale)
-        affinity_score = random_scale2(image, min_size=self.target_size, rnd_sclae=scale)
+        image = random_scale2(image, min_size=self.target_size, rnd_scale=scale, bboxes=_charbox)
+        region_score = random_scale2(image, min_size=self.target_size, rnd_scale=scale)
+        affinity_score = random_scale2(image, min_size=self.target_size, rnd_scale=scale)
         confidence_mask = np.ones((image.shape[0], image.shape[1]))
 
         character_bboxes = []
@@ -92,9 +93,7 @@ class SynthTextDataLoader(data.Dataset):
         image, region_score, affinity_score, character_bboxes, words, \
         confidence_mask, img_path = self.load_synthtext_image_gt(index)
 
-
-
-        random_transforms = [image, region_scores, affinities_scores, confidence_mask*255]
+        random_transforms = [image, region_score, affinity_score, confidence_mask*255]
         random_transforms = random_crop(random_transforms, (self.target_size, self.target_size), character_bboxes)
         image, region_image, affinity_image, confidence_mask = random_transforms
 
@@ -117,7 +116,6 @@ class SynthTextDataLoader(data.Dataset):
         image = imgproc.normalizeMeanVariance(np.array(image), mean=(0.485, 0.456, 0.406),
                                               variance=(0.229, 0.224, 0.225))
         image = image.transpose(2, 0, 1)
-
 
 
         region_image = region_image.astype(np.float32) / 255

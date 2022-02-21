@@ -10,7 +10,8 @@ import numpy as np
 import torch
 from torch.autograd import Variable
 
-from utils import craft_utils
+
+from utils.craft_utils import mep, getDetBoxes, adjustResultCoordinates
 from data import imgproc
 
 
@@ -194,11 +195,11 @@ def test_net(net, image, text_threshold, link_threshold, low_text, cuda, poly, c
 
 
     # Post-processing
-    boxes, polys = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text, poly)
+    boxes, polys = getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text, poly)
 
     # coordinate adjustment
-    boxes = craft_utils.adjustResultCoordinates(boxes, ratio_w, ratio_h)
-    polys = craft_utils.adjustResultCoordinates(polys, ratio_w, ratio_h)
+    boxes = adjustResultCoordinates(boxes, ratio_w, ratio_h)
+    polys = adjustResultCoordinates(polys, ratio_w, ratio_h)
     for k in range(len(polys)):
         if polys[k] is None: polys[k] = boxes[k]
 
