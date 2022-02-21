@@ -1,6 +1,8 @@
 import os
 import cv2
 import time
+import yaml
+import shutil
 import wandb
 import argparse
 import numpy as np
@@ -14,57 +16,19 @@ from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 
 from eval import main as main_eval
-from craft import CRAFT
+from model.craft import CRAFT
 from utils import config
 from loss.mseloss import Maploss, Maploss_v2, Maploss_v3
 from data.dataset import SynthTextDataLoader
 from metrics.eval_det_iou import DetectionIoUEvaluator
-from utils.util import save_parser, make_logger, AverageMeter
+from utils.util import save_parser
 
 
 parser = argparse.ArgumentParser(description='CRAFT SynthText Train')
-def str2bool(v):
-    return v.lower() in ("yes", "y", "true", "t", "1")
-
-parser.add_argument('--results_dir', default='./exp/synthtext/', type=str, help='Path to save checkpoints')
-parser.add_argument('--synthData_dir', default='/data/SynthText/', type=str, help='Path to root directory of SynthText dataset')
-parser.add_argument("--ckpt_path", default='', type=str, help="path to pretrained model")
-parser.add_argument('--batch_size', default=16, type = int, help='batch size of training')
-parser.add_argument('--st_iter', default=0, type = int, help='start iter')
-parser.add_argument('--end_iter', default=10, type = int, help='end iter')
-
-parser.add_argument('--lr', '--learning-rate', default=1e-4, type=float, help='initial learning rate')
-parser.add_argument('--lr-decay', default=10000, type=int, help='learning rate decay')
-parser.add_argument('--gamma', '--gamma', default=0.8, type=float, help='initial gamma')
-parser.add_argument('--weight_decay', default=1e-4, type=float, help='Weight decay for SGD')
-parser.add_argument('--num_workers', default=4, type=int, help='Number of workers used in dataloading')
-
-parser.add_argument('--loss', default=3, type=int, help='loss version')
-parser.add_argument('--neg_rto', default=3, type=int, help='negative pixel ratio')
-parser.add_argument('--enlargeSize', default=0.75, type=float, help='enlargebox size')
-parser.add_argument('--rnd_crop', default='rnd_back', type=str, help='random crop version')
-
-parser.add_argument('--aug', action='store_true', help='augmentation')
-parser.add_argument('--amp', action='store_true', help='Automatic Mixed Precision')
-
-parser.add_argument('--wandb-name', default=None, type=str, help='name for wandb logging')
-
-#for test
-parser.add_argument('--trained_model', default='', type=str, help='pretrained model')
-parser.add_argument('--text_threshold', default=0.7, type=float, help='text confidence threshold') # ICDAR2015 0.85
-parser.add_argument('--low_text', default=0.4, type=float, help='text low-bound score') # ICDAR2015 0.5
-parser.add_argument('--link_threshold', default=0.2, type=float, help='link confidence threshold') # ICDAR2013: 0.2
-parser.add_argument('--cuda', default=True, type=str2bool, help='Use cuda for inference')
-parser.add_argument('--canvas_size', default=960, type=int, help='image size for inference')
-parser.add_argument('--mag_ratio', default=1.5, type=float, help='image magnification ratio')
-parser.add_argument('--poly', default=False, action='store_true', help='enable polygon type')
-parser.add_argument('--isTraingDataset', default=False, type=str2bool, help='test for training or test data')
-parser.add_argument('--test_folder', default='/data/ICDAR2013/', type=str, help='folder path to input images')
-
+parser.add_argument('--yaml_path', default='./exp/synthtext/', type=str, help='Load configuration')
 args = parser.parse_args()
 
-#wandb.init(project="CRAFT", entity="pingu", name=args.wandb_name)
-#wandb.config.update(args)
+
 
 def copyStateDict(state_dict):
     if list(state_dict.keys())[0].startswith("module"):
@@ -97,28 +61,44 @@ def main():
 
 def main_worker(gpu, ngpus_per_node):
 
-    if gpu == 0:
-        if not os.path.exists(args.results_dir):
-            os.makedirs(args.results_dir)
+
+    # ----------------------------------------------------------------------------------------------------------------#
 
     if gpu == 0:
-        save_parser(args)
+        config = yaml.load(open(args.yaml_path, "r"), Loader=yaml.FullLoader)
+
+        # make result_dir
+        res_dir_name = args.yaml_path.split('/')[-1].split(".yaml")[0]
+        res_dir = os.path.join('exp', res_dir_name)
+        config["results_dir"] = res_dir
+
+        if not os.path.exists(res_dir): os.makedirs(res_dir)
+        # Duplicate yaml file to result_dir
+        shutil.copy(args.yaml_path, os.path.join(res_dir, res_dir_name) + '.yaml')
+
+        # Apply config to wandb
+        wandb.init(project="CRAFT", entity="pingu", name=res_dir_name)
+        wandb.config.update(config)
+
+    # ----------------------------------------------------------------------------------------------------------------#
+
+
     config.AUG = args.aug
     config.ITER = args.st_iter
-
     batch_size = int(args.batch_size / ngpus_per_node)
 
     torch.distributed.init_process_group(
         backend='nccl',
-        init_method='tcp://127.0.0.1:3457',
+        init_method='tcp://127.0.0.1:3455',
         world_size=ngpus_per_node,
         rank=gpu)
 
 
+
+    import ipdb;ipdb.set_trace()
     synthData_dir = {"synthtext": args.synthData_dir}
-    synthDataLoader = SynthTextDataLoader(args, target_size=768, data_dir_list=synthData_dir, mode='')
-    #tst_charbox, tst_image, tst_imgtxt = synthDataLoader.load_synthtext(mode='test')
-    #test_data_li = [tst_charbox, tst_image, tst_imgtxt]
+    synthDataLoader = SynthTextDataLoader(args, target_size=768, data_paths=args.synthData_dir)
+
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(synthDataLoader)
     train_loader = torch.utils.data.DataLoader(synthDataLoader,
@@ -169,9 +149,7 @@ def main_worker(gpu, ngpus_per_node):
     elif args.loss == 3:
         criterion = Maploss_v3()
 
-    #logger
-    if gpu == 0:
-        trn_logger, val_logger = make_logger(path=args.results_dir)
+
 
     train_step = args.st_iter
     whole_training_step = args.end_iter
@@ -179,7 +157,7 @@ def main_worker(gpu, ngpus_per_node):
     training_lr = args.lr
     loss_value = 0
     batch_time = 0
-    losses = AverageMeter()
+
 
     start_time = time.time()
     while train_step < whole_training_step:
@@ -220,7 +198,7 @@ def main_worker(gpu, ngpus_per_node):
             end_time = time.time()
             loss_value += loss.item()
             batch_time += (end_time - start_time)
-            losses.update(loss.item(), images.size(0))
+
 
             #wandb.log({"SynthText Loss": loss.item()})
 
@@ -249,13 +227,13 @@ def main_worker(gpu, ngpus_per_node):
                     metrics = main_eval(args.results_dir + '/CRAFT_clr_amp_' + repr(train_step) + '.pth', args, evaluator)
                 else:
                     metrics = main_eval(args.results_dir + '/CRAFT_clr_' + repr(train_step)+ '.pth', args, evaluator)
-                val_logger.write([train_step, losses.avg, str(np.round(metrics['hmean'], 3))])
+
 
                 #wandb.log({"ICDAR2013 Recall": np.round(metrics['recall'], 3),
                 #           "ICDAR2013 Precision": np.round(metrics['precision'], 3),
                 #           "ICDAR2013 F1-score": np.round(metrics['hmean'], 3)})
 
-                losses.reset()
+
             train_step += 1
             config.ITER +=1
 
@@ -285,7 +263,7 @@ def main_worker(gpu, ngpus_per_node):
         else:
             metrics = main_eval(args.results_dir + '/CRAFT_clr_' + repr(train_step)+ '.pth', args, evaluator)
 
-        val_logger.write([train_step, losses.avg, str(np.round(metrics['hmean'], 3))])
+
 
 if __name__=='__main__':
     main()
