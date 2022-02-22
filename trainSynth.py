@@ -23,6 +23,7 @@ from model.craft import CRAFT
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils import config
 from utils.util import save_parser
+from config import config
 
 
 
@@ -35,7 +36,61 @@ class Trainer(object):
         self.synth_loader = self._get_synth_loader()
         self.net_param = self._get_load_param()
 
+    def _copy_state_dict(self, state_dict):
+        if list(state_dict.keys())[0].startswith("module"):
+            start_idx = 1
+        else:
+            start_idx = 0
+        new_state_dict = OrderedDict()
+        for k, v in state_dict.items():
+            name = ".".join(k.split(".")[start_idx:])
+            new_state_dict[name] = v
+        return new_state_dict
 
+    def _adjust_learning_rate(self, optimizer, gamma, step, lr):
+        """Sets the learning rate to the initial LR decayed by 10 at every
+            specified step
+        # Adapted from PyTorch Imagenet example:
+        # https://github.com/pytorch/examples/blob/master/imagenet/main.py
+        """
+        lr = lr * (gamma ** step)
+        print(lr)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+        return param_group['lr']
+
+    def _get_synth_loader(self):
+        # 나중에 따로 동작할 수 도 있을 것 같아서 분리 시켜 놓음
+
+        synthDataLoader = SynthTextDataLoader(target_size=self.config.train.data.output_size, data_dir=config.data_dir.synthtext, logging=config.train.data.logging)
+        #synth_sampler = torch.utils.data.distributed.DistributedSampler(synthDataLoader)
+        synth_loader = torch.utils.data.DataLoader(synthDataLoader,
+                                                   batch_size=self.trn_config["batch_size"],
+                                                   shuffle=False,
+                                                   num_workers=self.trn_config["num_workers"],
+                                                   drop_last=False,
+                                                   pin_memory=True)
+                                                   #sampler=synth_sampler,
+
+
+        return synth_loader
+
+    def _get_load_param(self):
+
+        if self.trn_config["ckpt_path"] is not None:
+            param = torch.load(self.trn_config["ckpt_path"])
+        else:
+            param = None
+
+        return param
+
+
+    def _get_loss(self):
+        if self.trn_config["loss"] == 2:
+            criterion = Maploss_v2()
+        elif self.trn_config["loss"] == 3:
+            criterion = Maploss_v3()
+        return criterion
 
     def _copy_state_dict(self, state_dict):
         if list(state_dict.keys())[0].startswith("module"):
@@ -99,7 +154,6 @@ class Trainer(object):
 
         trn_loader = self.synth_loader
         # -------------------------------------------------------------------------------------------------------#
-
         craft = CRAFT(pretrained=True, amp=self.trn_config["amp"])
 
         # craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
@@ -107,6 +161,30 @@ class Trainer(object):
         # craft = craft.cuda(gpu)
         # craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[gpu])
 
+        # load model
+        if self.trn_config["ckpt_path"] is not None:
+            craft.load_state_dict(self.copy_state_dict(self.net_param["train"]['craft']))
+            print('success craft_load.')
+
+        craft = torch.nn.DataParallel(craft).cuda()
+        torch.backends.cudnn.benchmark = True
+        # ----------------------------------------------------------------------------------------------------------#
+
+        optimizer = optim.Adam(craft.parameters(), lr=self.trn_config["lr"],
+                               weight_decay=self.trn_config["weight_decay"])
+
+        # load optim
+        if self.trn_config["ckpt_path"] is not None:
+            optimizer.load_state_dict(self.copy_state_dict(self.net_param['optimizer']))
+            self.trn_config["st_iter"] = self.net_param['optimizer']['state'][0]['step']
+            self.trn_config["lr"] = self.net_param['optimizer']['param_groups'][0]['lr']
+            print('success optim_load')
+
+        # ---------------------------------------------------------------------------------------------------------#
+
+        # mixed precision
+        if self.trn_config["amp"]:
+            scaler = torch.cuda.amp.GradScaler()
 
         # load model
         if self.trn_config["ckpt_path"] is not None:
@@ -161,6 +239,33 @@ class Trainer(object):
                     training_lr = self.adjust_learning_rate(optimizer, self.trn_config["gamma"],
                                                        update_lr_rate_step, self.trn_config["lr"])
 
+            if self.trn_config["ckpt_path"] is not None:
+                scaler.load_state_dict(self.copy_state_dict(self.net_param["scaler"]))
+
+        # loss
+        criterion = self._get_loss()
+
+        # ------------------------------------------------------------------------------------------------------#
+
+        train_step = self.trn_config["st_iter"]
+        whole_training_step = self.trn_config["end_iter"]
+        update_lr_rate_step = 0
+        training_lr = self.trn_config["lr"]
+        loss_value = 0
+        batch_time = 0
+
+        start_time = time.time()
+        while train_step < whole_training_step:
+            for index, (image, region_image, affinity_image, confidence_mask) in enumerate(
+                    trn_loader):
+
+
+                craft.train()
+                if train_step > 0 and train_step % self.trn_config["lr_decay"] == 0:
+                    update_lr_rate_step += 1
+                    training_lr = self.adjust_learning_rate(optimizer, self.trn_config["gamma"],
+                                                       update_lr_rate_step, self.trn_config["lr"])
+
                 images = Variable(image).cuda()
                 region_image_label = Variable(region_image).cuda()
                 affinity_image_label = Variable(affinity_image).cuda()
@@ -175,6 +280,7 @@ class Trainer(object):
                         loss = criterion(region_image_label, affinity_image_label,
                                          out1, out2, confidence_mask_label, self.trn_config["neg_rto"])
 
+ 
                     optimizer.zero_grad()
                     scaler.scale(loss).backward()
                     scaler.step(optimizer)
@@ -197,7 +303,6 @@ class Trainer(object):
                 loss_value += loss.item()
                 batch_time += (end_time - start_time)
                 wandb.log({"SynthText Loss": loss.item()})
-
 
                 if train_step % 50000 == 0 and train_step != 0:
 
@@ -223,6 +328,7 @@ class Trainer(object):
                               "ICDAR2013 Precision": np.round(metrics['precision'], 3),
                               "ICDAR2013 F1-score": np.round(metrics['hmean'], 3)})
 
+
                 train_step += 1
                 if train_step >= whole_training_step: break
 
@@ -243,10 +349,10 @@ class Trainer(object):
         evaluator = DetectionIoUEvaluator()
         metrics = main_eval(save_param_path, self.config, evaluator)
 
+
         # wandb.log({"ICDAR2013 Recall": np.round(metrics['recall'], 3),
         #           "ICDAR2013 Precision": np.round(metrics['precision'], 3),
         #           "ICDAR2013 F1-score": np.round(metrics['hmean'], 3)})
-
 
 
 
