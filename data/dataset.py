@@ -1,24 +1,20 @@
 import os
 import re
-import copy
-import random
-import numpy as np
 import itertools
-import time
 
-import cv2
+import numpy as np
 import scipy.io as scio
 from PIL import Image
-import torch
+import cv2
+from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 
 from config.load_config import cfg
-from utils.util import saveInput, saveImage
 from data import imgproc
-from data.imgaug import random_scale, random_scale2, random_crop
+from data.imgaug import random_crop_with_bbox_adapt_to_output_size
+from utils.util import saveInput, saveImage
 
-
-class SynthTextDataLoader(torch.utils.data.Dataset):
+class SynthTextDataLoader(Dataset):
     def __init__(self, output_size, data_dir, saved_gt_dir, logging):
 
         self.output_size = output_size
@@ -38,41 +34,40 @@ class SynthTextDataLoader(torch.utils.data.Dataset):
         img_path = os.path.join(self.data_dir, self.img_names[index][0])
         image = cv2.imread(img_path, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        char_bbox = self.char_bbox[index].transpose((2, 1, 0))
+        all_char_bbox = self.char_bbox[index].transpose((2, 1, 0))
 
-        image, char_bbox = self.dilate_img_to_output_size(image, char_bbox)
+        image, all_char_bbox = self.dilate_img_to_output_size(image, all_char_bbox)
 
         # region_score = os.path.join(self.saved_gt_dir, self.img_names[index][0])
         # affinity_score = os.path.join(self.saved_gt_dir, self.img_names[index][0])
         region_score = image
         affinity_score = image
 
-        words = [re.split(" \n|\n |\n| ", t.strip()) for t in self.img_words[index]]
+        confidence_mask = np.ones((image.shape[0], image.shape[1]), dtype=np.uint8)
+
+        words = [re.split(" \n|\n |\n| ", word.strip()) for word in self.img_words[index]]
         words = list(itertools.chain(*words))
-        words = [t for t in words if len(t) > 0]
-        import ipdb; ipdb.set_trace()
+        words = [word for word in words if len(word) > 0]
 
-        confidence_mask = np.ones((image.shape[0], image.shape[1]))
-
-        character_bboxes = []
-        total = 0
-        confidences = []
+        word_level_char_bbox = []
+        char_idx = 0
         for i in range(len(words)):
-            bboxes = char_bbox[total : total + len(words[i])]
-            assert len(bboxes) == len(words[i])
-            total += len(words[i])
-            bboxes = np.array(bboxes)
-            character_bboxes.append(bboxes)
-            confidences.append(1.0)
+            length_of_word = len(words[i])
+            word_bbox = all_char_bbox[char_idx : char_idx + length_of_word]
+            assert len(word_bbox) == length_of_word
+            char_idx += length_of_word
+            word_bbox = np.array(word_bbox)
+            word_level_char_bbox.append(word_bbox)
+
+        # TODO: output validation check
 
         return (
             image,
             region_score,
             affinity_score,
-            character_bboxes,
-            words,
             confidence_mask,
-            img_path,
+            word_level_char_bbox,
+            words,
         )
 
     # TODO
@@ -89,9 +84,32 @@ class SynthTextDataLoader(torch.utils.data.Dataset):
         char_bbox *= scale
         return image, char_bbox
 
+    def augment_image(self, image, region_score, affinity_score, confidence_mask, word_level_char_bbox):
 
-    def resizeGt(self, gtmask):
-        return cv2.resize(gtmask, (self.output_size // 2, self.output_size // 2))
+        augment_targets = [image, region_score, affinity_score, confidence_mask]
+
+        # TODO
+        # 1. rotate
+
+        # 2. scale
+
+        # 3. crop
+        augment_targets = random_crop_with_bbox_adapt_to_output_size(
+            augment_targets, word_level_char_bbox, self.output_size
+        )
+
+        # 4. horizontal flip
+
+        # 5. colorjitter
+        image, region_image, affinity_image, confidence_mask = augment_targets
+
+        image = Image.fromarray(image)
+        image = transforms.ColorJitter(brightness=32.0 / 255, saturation=0.5)(image)
+
+        return image, region_score, affinity_score, confidence_mask
+
+    def resize_to_half(self, ground_truth):
+        return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2))
 
     def __len__(self):
         return len(self.img_names)
@@ -103,55 +121,45 @@ class SynthTextDataLoader(torch.utils.data.Dataset):
                 image,
                 region_score,
                 affinity_score,
-                character_bboxes,
-                words,
                 confidence_mask,
-                img_path,
+                word_level_char_bbox,
+                words,
             ) = self.make_pseudo_gt(index)
         else:
             (
                 image,
                 region_score,
                 affinity_score,
-                character_bboxes,
-                words,
                 confidence_mask,
-                img_path,
+                word_level_char_bbox,
+                words,
             ) = self.load_saved_gt(index)
 
-        random_transforms = [image, region_score, affinity_score, confidence_mask * 255]
-        random_transforms = random_crop(
-            random_transforms, (self.output_size, self.output_size), character_bboxes
-        )
-        image, region_image, affinity_image, confidence_mask = random_transforms
-
-        # resize label
-        region_image = self.resizeGt(region_image)
-        affinity_image = self.resizeGt(affinity_image)
-        confidence_mask = self.resizeGt(confidence_mask)
+        if cfg.train.data.aug:
+            image, region_score, affinity_score, confidence_mask = self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
 
         if self.logging:
             saveInput(
                 self.img_names[index][0],
                 image,
-                region_image,
-                affinity_image,
+                region_score,
+                affinity_score,
                 confidence_mask,
             )
             self.logging = False
 
-        image = Image.fromarray(image)
+        region_score = self.resize_to_half(region_score)
+        affinity_score = self.resize_to_half(affinity_score)
+        confidence_mask = self.resize_to_half(confidence_mask)
 
-        if cfg.train.data.aug:
-            image = transforms.ColorJitter(brightness=32.0 / 255, saturation=0.5)(image)
-            # image = transforms.ColorJitter(brightness=32.0 / 255, contrast=0.5, saturation=0.5, hue=0.25)(image)
         image = imgproc.normalizeMeanVariance(
             np.array(image), mean=(0.485, 0.456, 0.406), variance=(0.229, 0.224, 0.225)
         )
         image = image.transpose(2, 0, 1)
 
-        region_image = region_image.astype(np.float32) / 255
-        affinity_image = affinity_image.astype(np.float32) / 255
+        # TODO : region score, affinity score type check
+        region_score = region_score.astype(np.float32) / 255
+        affinity_score = affinity_score.astype(np.float32) / 255
         confidence_mask = confidence_mask.astype(np.float32) / 255
 
-        return image, region_image, affinity_image, confidence_mask
+        return image, region_score, affinity_score, confidence_mask
