@@ -24,10 +24,10 @@ from data.imgaug import random_scale,random_scale2, random_crop
 class SynthTextDataLoader(data.Dataset):
 
 
-    def __init__(self, args, target_size=768, data_paths='', viz=False ):
+    def __init__(self, config, viz=False):
 
-        self.target_size = target_size
-        self.data_paths = data_paths
+        self.target_size = config["train"]["target_size"]
+        self.data_paths = config["synthData_dir"]
         self.charbox, self.image, self.imgtxt = self.load_synthtext()
         self.viz = viz
 
@@ -54,8 +54,8 @@ class SynthTextDataLoader(data.Dataset):
         image = cv2.imread(img_path, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        region_score = os.path.join(self.data_paths, self.image[index][0]) # 경로 수정
-        affinity_score = os.path.join(self.data_paths, self.image[index][0])  # 경로 수정
+        region_score = os.path.join(self.data_paths, self.image[index][0])  #TODO 경로 수정
+        affinity_score = os.path.join(self.data_paths, self.image[index][0]) #TODO 경로 수정
 
 
         _charbox = copy.deepcopy(self.charbox[index]).transpose((2, 1, 0))
@@ -67,8 +67,8 @@ class SynthTextDataLoader(data.Dataset):
         rnd_range = [0.5, 1.0, 1.5]
         scale = random.sample(rnd_range, 1)[0]
         image = random_scale2(image, min_size=self.target_size, rnd_scale=scale, bboxes=_charbox)
-        region_score = random_scale2(image, min_size=self.target_size, rnd_scale=scale)
-        affinity_score = random_scale2(image, min_size=self.target_size, rnd_scale=scale)
+        region_score = random_scale2(image, min_size=self.target_size, rnd_scale=scale)[:,:,0]  # TODO 수정
+        affinity_score = random_scale2(image, min_size=self.target_size, rnd_scale=scale)[:,:,0] # TODO 수정
         confidence_mask = np.ones((image.shape[0], image.shape[1]))
 
         character_bboxes = []
@@ -121,6 +121,7 @@ class SynthTextDataLoader(data.Dataset):
         region_image = region_image.astype(np.float32) / 255
         affinity_image = affinity_image.astype(np.float32) / 255
         confidence_mask = confidence_mask.astype(np.float32) /255
+
 
         return image, region_image, affinity_image, confidence_mask
 
