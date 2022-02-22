@@ -1,17 +1,30 @@
+
+
+from collections import OrderedDict
 import os
-import cv2
-import numpy as np
 import time
 
+import cv2
+import numpy as np
 import torch
 from torch.autograd import Variable
 
-
-#from utils import craft_utils
 from data import imgproc
-from collections import Iterable
+
 from utils import config
 from utils import craft_utils
+
+
+def copyStateDict(state_dict):
+    if list(state_dict.keys())[0].startswith("module"):
+        start_idx = 1
+    else:
+        start_idx = 0
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        name = ".".join(k.split(".")[start_idx:])
+        new_state_dict[name] = v
+    return new_state_dict
 
 
 def saveInput(imagename, image, region_scores, affinity_scores, confidence_mask):

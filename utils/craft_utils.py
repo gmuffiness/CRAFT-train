@@ -126,7 +126,8 @@ def getDetBoxes_core(textmap, linkmap, text_threshold, link_threshold, low_text)
     ret, link_score = cv2.threshold(linkmap, link_threshold, 1, 0)
 
     text_score_comb = np.clip(text_score + link_score, 0, 1)
-    nLabels, labels, stats, centroids = cv2.connectedComponentsWithStats(text_score_comb.astype(np.uint8), connectivity=4)
+    nLabels, labels, stats, centroids = \
+        cv2.connectedComponentsWithStats(text_score_comb.astype(np.uint8), connectivity=4)
 
     det = []
     mapper = []

@@ -9,13 +9,12 @@ import cv2
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 
-from config.load_config import cfg
 from data import imgproc
 from data.imgaug import random_crop_with_bbox_adapt_to_output_size
 from utils.util import saveInput, saveImage
 
 
-class SynthTextDataLoader(Dataset):
+class SynthTextDataSet(Dataset):
     def __init__(self, output_size, data_dir, saved_gt_dir, logging):
 
         self.output_size = output_size
@@ -24,12 +23,18 @@ class SynthTextDataLoader(Dataset):
         self.img_names, self.char_bbox, self.img_words = self.load_data()
         self.logging = logging
 
-    def load_data(self):
+    def load_data(self, bbox="char"):
+
         gt = scio.loadmat(os.path.join(self.data_dir, "gt.mat"))
         img_names = gt["imnames"][0]
-        char_bbox = gt["charBB"][0]
         img_words = gt["txt"][0]
-        return img_names, char_bbox, img_words
+
+        if bbox == "char" :
+            img_bbox = gt["charBB"][0]
+        else: img_bbox = gt["wordBB"][0] # word bbox needed for test
+
+
+        return img_names, img_bbox, img_words
 
     def load_saved_gt(self, index):
         img_path = os.path.join(self.data_dir, self.img_names[index][0])
@@ -138,7 +143,8 @@ class SynthTextDataLoader(Dataset):
             ) = self.load_saved_gt(index)
 
         if cfg.train.data.aug:
-            image, region_score, affinity_score, confidence_mask = self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
+            image, region_score, affinity_score, confidence_mask = \
+                self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
 
         if self.logging:
             saveInput(
