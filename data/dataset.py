@@ -14,6 +14,7 @@ from data import imgproc
 from data.imgaug import random_crop_with_bbox_adapt_to_output_size
 from utils.util import saveInput, saveImage
 
+
 class SynthTextDataLoader(Dataset):
     def __init__(self, output_size, data_dir, saved_gt_dir, logging):
 

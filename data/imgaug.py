@@ -40,19 +40,21 @@ def random_scale(img, bboxes, min_size):
     return img
 
 #TODO
-def random_scale2(img, min_size, rnd_scale, bboxes=None):
+def random_scale2(img, min_size, rnd_scale, bboxes=[]):
     h, w = img.shape[0:2]
     if max(h, w) > 1280:
         scale = 1280.0 / max(h, w)
         img = cv2.resize(img, dsize=None, fx=scale, fy=scale)
-        bboxes *= scale
+        if len(bboxes) != 0:
+            bboxes *= scale
 
     h, w = img.shape[0:2]
 
     if min(h, w) * rnd_scale <= min_size:
         rnd_scale = (min_size + 10) * 1.0 / min(h, w)
 
-    if bboxes !=None:
+
+    if len(bboxes) != 0:
         bboxes *= rnd_scale
 
     img = cv2.resize(img, dsize=None, fx=rnd_scale, fy=rnd_scale)
