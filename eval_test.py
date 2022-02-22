@@ -1,25 +1,21 @@
-"""
-Copyright (c) 2019-present NAVER Corp.
-MIT License
-"""
-
 # -*- coding: utf-8 -*-
-import os
-import argparse
 
-import torch
-import torch.backends.cudnn as cudnn
+import argparse
+from collections import OrderedDict
+import os
 
 import cv2
 import numpy as np
+import torch
+import torch.backends.cudnn as cudnn
 from tqdm import tqdm
+import wandb
+import yaml
 
 from model.craft import CRAFT
-from utils.inference_boxes import test_net, load_icdar2015_gt, load_icdar2013_gt, load_synthtext_gt
-from collections import OrderedDict
 from metrics.eval_det_iou import DetectionIoUEvaluator
+from utils.inference_boxes import test_net, load_icdar2015_gt, load_icdar2013_gt, load_synthtext_gt
 
-import wandb
 
 
 def str2bool(v):
@@ -47,7 +43,6 @@ def saveResult_2015(img_file, img, boxes, dirname='./result/', gt_file=None ):
     Return:
         None
     """
-
 
     img = np.array(img)
 
@@ -135,7 +130,7 @@ def main(model_path, args, evaluator, data_li=''):
 
 
     # load net
-
+    #------------------------------------------------------------------------------------------------------------------#
     model = CRAFT()  # initialize
     wandb.watch(model)
     # net = UNetWithResnet50Encoder()
@@ -153,14 +148,14 @@ def main(model_path, args, evaluator, data_li=''):
         cudnn.benchmark = False
     model.eval()
     # print('Model setting completed.')
+    # ------------------------------------------------------------------------------------------------------------------#
+
 
     if data_li != '':
         total_imgs_bboxes_gt, total_img_path = load_synthtext_gt(args.synthData_dir, data_li=data_li)
 
     else:
         test_folder = args.test_folder
-
-
 
         if test_folder.split('/')[-1].lower() == 'icdar2013':
             total_imgs_bboxes_gt, total_img_path, gt_folder_path = load_icdar2013_gt(dataFolder=test_folder,
@@ -170,6 +165,8 @@ def main(model_path, args, evaluator, data_li=''):
                                                                      isTraing=args.isTraingDataset)
 
     # print('icdar2015 data setting completed.')
+    # ------------------------------------------------------------------------------------------------------------------#
+
 
     total_img_bboxes_pre = []
     for k, img_path in enumerate(tqdm(total_img_path)):
@@ -187,7 +184,7 @@ def main(model_path, args, evaluator, data_li=''):
                                              args.canvas_size,
                                              args.mag_ratio)
 
-
+    # ------------------------------------------------------------------------------------------------------------------#
         if test_folder.split('/')[-1].lower() == 'icdar2013':
             rnd_list = [136, 210,  64,  97, 209,  87,  91, 169, 173, 191,  89, 177,  62,
                         105, 124, 213,  207, 216, 217,  34, 187,  42, 102, 113, 111, 176, 182, 1, 5, 8 ]
@@ -208,7 +205,7 @@ def main(model_path, args, evaluator, data_li=''):
             single_img_bbox.append(box_info)
         total_img_bboxes_pre.append(single_img_bbox)
 
-        # ------------------------------------------------------------------------------------------------------- #
+    # ----------------------------------------------------------------------------------------------------------------- #
 
         # if viz == True:
         #
@@ -283,31 +280,18 @@ def main(model_path, args, evaluator, data_li=''):
 
 if __name__ == '__main__':
 
-
-    parser = argparse.ArgumentParser(description='CRAFT Text Detection')
-    parser.add_argument('--trained_model',
-                        default='/data/workspace/woans0104/CRAFT-new-backtime92/exp/my_syn_new_v1/weights_52000.pth',
-                        type=str, help='pretrained model')
-    parser.add_argument('--text_threshold', default=0.85, type=float, help='text confidence threshold')
-    parser.add_argument('--low_text', default=0.5, type=float, help='text low-bound score')
-    parser.add_argument('--link_threshold', default=0.2, type=float, help='link confidence threshold')
-    parser.add_argument('--cuda', default=True, type=str2bool, help='Use cuda for inference')
-    parser.add_argument('--amp', default=False, type=str2bool, help='Use cuda for inference')
-    parser.add_argument('--canvas_size', default=2240, type=int, help='image size for inference')
-    parser.add_argument('--mag_ratio', default=1.5, type=float, help='image magnification ratio')
-    parser.add_argument('--poly', default=False, action='store_true', help='enable polygon type')
-    parser.add_argument('--isTraingDataset', default=False, type=str2bool, help='test for traing or test data')
-    parser.add_argument('--test_folder', default='/data/ICDAR2015', type=str,
-                        help='folder path to input images')
-    parser.add_argument('--results_dir', default='/nas/home/gmuffiness/result/ocr/icdar2015', type=str,
-                        help='Path to save checkpoints')
-
-
+    parser = argparse.ArgumentParser(description='CRAFT Text Detection Eval')
+    parser.add_argument('--yaml_path', default='./exp/synthtext/', type=str, help='Load configuration')
     args = parser.parse_args()
-    wandb.init(project='ocr_craft')
+
+    # load configure
+    config = yaml.load(open(args.yaml_path, "r"), Loader=yaml.FullLoader)
+
+    # wandb
+    wandb.init(project="jm-test", entity="pingu", name=res_dir_name)
     wandb.run.name = args.trained_model.split('/')[-2][-4:] + '_eval'
-    wandb.config.update(args)
+    wandb.config.update(config)
+
 
     evaluator = DetectionIoUEvaluator()
-
     main(args.trained_model, args, evaluator)
