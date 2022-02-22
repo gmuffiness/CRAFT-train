@@ -243,7 +243,7 @@ class Maploss_v3(nn.Module):
         else:
             positive_pixel_number = prev_pos_pixel_number
             # only negative pixel
-            positive_loss = torch.tensor(0., device='cuda:0')
+            positive_loss = torch.tensor(0.)
             negative_loss = \
                 torch.sum(torch.topk(negative_loss_region.view(-1), int(neg_rto * positive_pixel_number))[0]) \
                 / (neg_rto * positive_pixel_number)
@@ -263,8 +263,8 @@ class Maploss_v3(nn.Module):
         loss_affinity = torch.mul(loss2, mask)
 
         batch_size = loss_region.shape[0]
-        char_losses = torch.tensor(0, device='cuda:0')
-        affi_losses = torch.tensor(0, device='cuda:0')
+        char_losses = torch.tensor(0)
+        affi_losses = torch.tensor(0)
         pos_pixel_number = 1000
 
         for i in range(batch_size):

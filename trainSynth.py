@@ -61,31 +61,29 @@ def main():
 
 def main_worker(gpu, ngpus_per_node):
 
+    config = yaml.load(open(args.yaml_path, "r"), Loader=yaml.FullLoader)
 
+    # make result_dir
+    res_dir_name = args.yaml_path.split('/')[-1].split(".yaml")[0]
+    res_dir = os.path.join('exp', res_dir_name)
+    config["results_dir"] = res_dir
     # ----------------------------------------------------------------------------------------------------------------#
 
     if gpu == 0:
-        config = yaml.load(open(args.yaml_path, "r"), Loader=yaml.FullLoader)
-
-        # make result_dir
-        res_dir_name = args.yaml_path.split('/')[-1].split(".yaml")[0]
-        res_dir = os.path.join('exp', res_dir_name)
-        config["results_dir"] = res_dir
-
         if not os.path.exists(res_dir): os.makedirs(res_dir)
         # Duplicate yaml file to result_dir
         shutil.copy(args.yaml_path, os.path.join(res_dir, res_dir_name) + '.yaml')
 
         # Apply config to wandb
-        wandb.init(project="CRAFT", entity="pingu", name=res_dir_name)
+        wandb.init(project="jm-test", entity="pingu", name=res_dir_name)
         wandb.config.update(config)
 
     # ----------------------------------------------------------------------------------------------------------------#
 
 
-    config.AUG = args.aug
-    config.ITER = args.st_iter
-    batch_size = int(args.batch_size / ngpus_per_node)
+    #config.AUG = args.aug
+    #config.ITER = args.st_iter
+    batch_size = int(config["train"]["batch_size"] / ngpus_per_node)
 
     torch.distributed.init_process_group(
         backend='nccl',
@@ -95,8 +93,8 @@ def main_worker(gpu, ngpus_per_node):
 
 
 
-    import ipdb;ipdb.set_trace()
-    synthData_dir = {"synthtext": args.synthData_dir}
+
+
     synthDataLoader = SynthTextDataLoader(args, target_size=768, data_paths=args.synthData_dir)
 
 
@@ -109,6 +107,7 @@ def main_worker(gpu, ngpus_per_node):
                                                drop_last=False,
                                                pin_memory=True)
 
+    # ----------------------------------------------------------------------------------------------------------------#
 
     craft = CRAFT(pretrained=True, amp=args.amp)
     craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)

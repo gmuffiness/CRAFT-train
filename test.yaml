@@ -4,14 +4,15 @@ synthData_dir : "/data/SynthText/"
 
 
 train:
-  ckpt_path: ""
+  ckpt_path: null
+  target_size : 384
   batch_size: 16
   st_iter: 0
-  end_iter: 10
-  lr: 1e-4
-  lr-decay: 10000
+  end_iter: 100
+  lr: 0.0001
+  lr_decay: 10000
   gamma: 0.8
-  weight_decay: 1e-4
+  weight_decay: 0.0001
   num_workers: 0
   loss: 3
   neg_rto: 3
