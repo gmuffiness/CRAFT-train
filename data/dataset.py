@@ -1,133 +1,166 @@
-
 import os
 import re
-import copy
-import random
-import numpy as np
 import itertools
 
-import cv2
+import numpy as np
 import scipy.io as scio
 from PIL import Image
-
-import torch.utils.data as data
+import cv2
+from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 
-from utils import config
-from utils.util import saveInput, saveImage
+from config.load_config import cfg
 from data import imgproc
-from data.imgaug import random_scale,random_scale2, random_crop
+from data.imgaug import random_crop_with_bbox_adapt_to_output_size
+from utils.util import saveInput, saveImage
 
 
+class SynthTextDataLoader(Dataset):
+    def __init__(self, output_size, data_dir, saved_gt_dir, logging):
 
+        self.output_size = output_size
+        self.data_dir = data_dir
+        self.saved_gt_dir = saved_gt_dir
+        self.img_names, self.char_bbox, self.img_words = self.load_data()
+        self.logging = logging
 
-class SynthTextDataLoader(data.Dataset):
+    def load_data(self):
+        gt = scio.loadmat(os.path.join(self.data_dir, "gt.mat"))
+        img_names = gt["imnames"][0]
+        char_bbox = gt["charBB"][0]
+        img_words = gt["txt"][0]
+        return img_names, char_bbox, img_words
 
-
-    def __init__(self, config, viz=False):
-
-        self.target_size = config["train"]["target_size"]
-        self.data_paths = config["synthData_dir"]
-        self.charbox, self.image, self.imgtxt = self.load_synthtext()
-        self.viz = viz
-
-
-
-
-    def load_synthtext(self):
-
-        gt = scio.loadmat(os.path.join(self.data_paths, 'gt.mat'))
-        wordbox = gt['wordBB'][0]
-        charbox = gt['charBB'][0]
-        imnames = gt['imnames'][0]
-        imgtxt = gt['txt'][0]
-
-
-        return charbox, imnames, imgtxt
-
-
-    def load_synthtext_image_gt(self, index):
-
-        #저장된 region, affinity map을 불러옴
-        #불러온 region map과 동일한 charbox,imnames,imgtxt를 load_synthtext에서 가져옴
-        img_path = os.path.join(self.data_paths, self.image[index][0]) # 경로 수정
+    def load_saved_gt(self, index):
+        img_path = os.path.join(self.data_dir, self.img_names[index][0])
         image = cv2.imread(img_path, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        all_char_bbox = self.char_bbox[index].transpose((2, 1, 0))
 
-        region_score = os.path.join(self.data_paths, self.image[index][0])  #TODO 경로 수정
-        affinity_score = os.path.join(self.data_paths, self.image[index][0]) #TODO 경로 수정
+        image, all_char_bbox = self.dilate_img_to_output_size(image, all_char_bbox)
 
+        # region_score = os.path.join(self.saved_gt_dir, self.img_names[index][0])
+        # affinity_score = os.path.join(self.saved_gt_dir, self.img_names[index][0])
+        region_score = image
+        affinity_score = image
 
-        _charbox = copy.deepcopy(self.charbox[index]).transpose((2, 1, 0))
-        words = [re.split(' \n|\n |\n| ', t.strip()) for t in self.imgtxt[index]]
+        confidence_mask = np.ones((image.shape[0], image.shape[1]), dtype=np.uint8)
+
+        words = [re.split(" \n|\n |\n| ", word.strip()) for word in self.img_words[index]]
         words = list(itertools.chain(*words))
-        words = [t for t in words if len(t) > 0]
+        words = [word for word in words if len(word) > 0]
 
-
-        rnd_range = [0.5, 1.0, 1.5]
-        scale = random.sample(rnd_range, 1)[0]
-        image = random_scale2(image, min_size=self.target_size, rnd_scale=scale, bboxes=_charbox)
-        region_score = random_scale2(image, min_size=self.target_size, rnd_scale=scale)[:,:,0]  # TODO 수정
-        affinity_score = random_scale2(image, min_size=self.target_size, rnd_scale=scale)[:,:,0] # TODO 수정
-        confidence_mask = np.ones((image.shape[0], image.shape[1]))
-
-        character_bboxes = []
-        total = 0
-        confidences = []
+        word_level_char_bbox = []
+        char_idx = 0
         for i in range(len(words)):
-            bboxes = _charbox[total:total + len(words[i])]
-            assert len(bboxes) == len(words[i])
-            total += len(words[i])
-            bboxes = np.array(bboxes)
-            character_bboxes.append(bboxes)
-            confidences.append(1.0)
+            length_of_word = len(words[i])
+            word_bbox = all_char_bbox[char_idx : char_idx + length_of_word]
+            assert len(word_bbox) == length_of_word
+            char_idx += length_of_word
+            word_bbox = np.array(word_bbox)
+            word_level_char_bbox.append(word_bbox)
 
+        # TODO: output validation check
 
-        return image, region_score, affinity_score, character_bboxes, words, confidence_mask, img_path
+        return (
+            image,
+            region_score,
+            affinity_score,
+            confidence_mask,
+            word_level_char_bbox,
+            words,
+        )
 
+    # TODO
+    def make_pseudo_gt(self, index):
+        return 0
 
-    def resizeGt(self, gtmask):
-        return cv2.resize(gtmask, (self.target_size // 2, self.target_size // 2))
+    def dilate_img_to_output_size(self, image, char_bbox):
+        h, w = image.shape[0:2]
+        if min(h, w) <= self.output_size:
+            scale = float(self.output_size + 10) / min(h, w)
+        else:
+            scale = 1.0
+        image = cv2.resize(image, dsize=None, fx=scale, fy=scale)
+        char_bbox *= scale
+        return image, char_bbox
 
-    def pull_item(self, index):
-        image, region_score, affinity_score, character_bboxes, words, \
-        confidence_mask, img_path = self.load_synthtext_image_gt(index)
+    def augment_image(self, image, region_score, affinity_score, confidence_mask, word_level_char_bbox):
 
-        random_transforms = [image, region_score, affinity_score, confidence_mask*255]
-        random_transforms = random_crop(random_transforms, (self.target_size, self.target_size), character_bboxes)
-        image, region_image, affinity_image, confidence_mask = random_transforms
+        augment_targets = [image, region_score, affinity_score, confidence_mask]
 
-        #resize label
-        region_image = self.resizeGt(region_image)
-        affinity_image = self.resizeGt(affinity_image)
-        confidence_mask = self.resizeGt(confidence_mask)
+        # TODO
+        # 1. rotate
 
-        if self.viz:
-            saveInput(self.image[index][0], image, region_image, affinity_image, confidence_mask)
-            self.viz = False
+        # 2. scale
 
+        # 3. crop
+        augment_targets = random_crop_with_bbox_adapt_to_output_size(
+            augment_targets, word_level_char_bbox, self.output_size
+        )
+
+        # 4. horizontal flip
+
+        # 5. colorjitter
+        image, region_image, affinity_image, confidence_mask = augment_targets
 
         image = Image.fromarray(image)
+        image = transforms.ColorJitter(brightness=32.0 / 255, saturation=0.5)(image)
 
+        return image, region_score, affinity_score, confidence_mask
 
-        if config.AUG == True:
-            image = transforms.ColorJitter(brightness=32.0 / 255, saturation=0.5)(image)
-            #image = transforms.ColorJitter(brightness=32.0 / 255, contrast=0.5, saturation=0.5, hue=0.25)(image)
-        image = imgproc.normalizeMeanVariance(np.array(image), mean=(0.485, 0.456, 0.406),
-                                              variance=(0.229, 0.224, 0.225))
-        image = image.transpose(2, 0, 1)
-
-
-        region_image = region_image.astype(np.float32) / 255
-        affinity_image = affinity_image.astype(np.float32) / 255
-        confidence_mask = confidence_mask.astype(np.float32) /255
-
-
-        return image, region_image, affinity_image, confidence_mask
+    def resize_to_half(self, ground_truth):
+        return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2))
 
     def __len__(self):
-        return len(self.image)
+        return len(self.img_names)
 
     def __getitem__(self, index):
-        return self.pull_item(index)
 
+        if self.saved_gt_dir == "":
+            (
+                image,
+                region_score,
+                affinity_score,
+                confidence_mask,
+                word_level_char_bbox,
+                words,
+            ) = self.make_pseudo_gt(index)
+        else:
+            (
+                image,
+                region_score,
+                affinity_score,
+                confidence_mask,
+                word_level_char_bbox,
+                words,
+            ) = self.load_saved_gt(index)
+
+        if cfg.train.data.aug:
+            image, region_score, affinity_score, confidence_mask = self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
+
+        if self.logging:
+            saveInput(
+                self.img_names[index][0],
+                image,
+                region_score,
+                affinity_score,
+                confidence_mask,
+            )
+            self.logging = False
+
+        region_score = self.resize_to_half(region_score)
+        affinity_score = self.resize_to_half(affinity_score)
+        confidence_mask = self.resize_to_half(confidence_mask)
+
+        image = imgproc.normalizeMeanVariance(
+            np.array(image), mean=(0.485, 0.456, 0.406), variance=(0.229, 0.224, 0.225)
+        )
+        image = image.transpose(2, 0, 1)
+
+        # TODO : region score, affinity score type check
+        region_score = region_score.astype(np.float32) / 255
+        affinity_score = affinity_score.astype(np.float32) / 255
+        confidence_mask = confidence_mask.astype(np.float32) / 255
+
+        return image, region_score, affinity_score, confidence_mask

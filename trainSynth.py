@@ -23,8 +23,13 @@ from model.craft import CRAFT
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils import config
 from utils.util import save_parser
+from config import config
 
 
+parser = argparse.ArgumentParser(description='CRAFT SynthText Train')
+parser.add_argument('--yaml_path', default='./exp/synthtext/', type=str, help='Load configuration')
+parser.add_argument('--config_name', default='./exp/synthtext/', type=str, help='Load configuration')
+args = parser.parse_args()
 
 
 class Trainer(object):
@@ -34,8 +39,6 @@ class Trainer(object):
         self.trn_config = config["train"]
         self.synth_loader = self._get_synth_loader()
         self.net_param = self._get_load_param()
-
-
 
     def _copy_state_dict(self, state_dict):
         if list(state_dict.keys())[0].startswith("module"):
@@ -63,7 +66,7 @@ class Trainer(object):
     def _get_synth_loader(self):
         # 나중에 따로 동작할 수 도 있을 것 같아서 분리 시켜 놓음
 
-        synthDataLoader = SynthTextDataLoader(self.config)
+        synthDataLoader = SynthTextDataLoader(target_size=self.config.train.data.output_size, data_dir=config.data_dir.synthtext, logging=config.train.data.logging)
         #synth_sampler = torch.utils.data.distributed.DistributedSampler(synthDataLoader)
         synth_loader = torch.utils.data.DataLoader(synthDataLoader,
                                                    batch_size=self.trn_config["batch_size"],
@@ -99,14 +102,12 @@ class Trainer(object):
 
         trn_loader = self.synth_loader
         # -------------------------------------------------------------------------------------------------------#
-
         craft = CRAFT(pretrained=True, amp=self.trn_config["amp"])
 
         # craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
         # torch.cuda.set_device(gpu)
         # craft = craft.cuda(gpu)
         # craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[gpu])
-
 
         # load model
         if self.trn_config["ckpt_path"] is not None:
@@ -115,7 +116,6 @@ class Trainer(object):
 
         craft = torch.nn.DataParallel(craft).cuda()
         torch.backends.cudnn.benchmark = True
-
         # ----------------------------------------------------------------------------------------------------------#
 
         optimizer = optim.Adam(craft.parameters(), lr=self.trn_config["lr"],

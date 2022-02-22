@@ -130,16 +130,16 @@ def random_crop_v0(imgs, img_size, character_bboxes):
 
 
 
-def random_crop(imgs, img_size, character_bboxes):
-    h, w = imgs[0].shape[0:2]
-    th, tw = img_size
-    crop_h, crop_w = img_size
+def random_crop_with_bbox_adapt_to_output_size(augment_targets, word_level_char_bbox, output_size):
+    h, w = augment_targets[0].shape[0:2]
+    th, tw = output_size, output_size
+    crop_h, crop_w = output_size, output_size
     if w == tw and h == th:
-        return imgs
+        return augment_targets
 
     word_bboxes = []
-    if len(character_bboxes) > 0:
-        for bboxes in character_bboxes:
+    if len(word_level_char_bbox) > 0:
+        for bboxes in word_level_char_bbox:
              word_bboxes.append(
                 [[bboxes[:, :, 0].min(), bboxes[:, :, 1].min()], [bboxes[:, :, 0].max(), bboxes[:, :, 1].max()]])
     word_bboxes = np.array(word_bboxes, np.int32)
@@ -147,8 +147,8 @@ def random_crop(imgs, img_size, character_bboxes):
     if random.random() > 0.6 and len(word_bboxes) > 0:
         sample_bboxes = word_bboxes[random.randint(0, len(word_bboxes) - 1)]
 
-        left = max(sample_bboxes[1, 0] - img_size[0], 0)
-        top = max(sample_bboxes[1, 1] - img_size[0],0)
+        left = max(sample_bboxes[1, 0] - output_size, 0)
+        top = max(sample_bboxes[1, 1] - output_size,0)
 
         if min(sample_bboxes[0, 1], h - th) < top or min(sample_bboxes[0, 0], w - tw) < left:
             i = random.randint(0, h - th)
@@ -168,19 +168,19 @@ def random_crop(imgs, img_size, character_bboxes):
         # i, j = 0, 0
         # crop_h, crop_w = h + 1, w + 1  # make the crop_h, crop_w > tw, th
 
-    for idx in range(len(imgs)):
+    for idx in range(len(augment_targets)):
         # crop_h = sample_bboxes[1, 1] if th < sample_bboxes[1, 1] else th
         # crop_w = sample_bboxes[1, 0] if tw < sample_bboxes[1, 0] else tw
 
-        if len(imgs[idx].shape) == 3:
-            imgs[idx] = imgs[idx][i:i + crop_h, j:j + crop_w, :]
+        if len(augment_targets[idx].shape) == 3:
+            augment_targets[idx] = augment_targets[idx][i:i + crop_h, j:j + crop_w, :]
         else:
-            imgs[idx] = imgs[idx][i:i + crop_h, j:j + crop_w]
+            augment_targets[idx] = augment_targets[idx][i:i + crop_h, j:j + crop_w]
 
         if crop_w > tw or crop_h > th:
-            imgs[idx] = padding_image(imgs[idx], tw)
+            augment_targets[idx] = padding_image(augment_targets[idx], tw)
 
-    return imgs
+    return augment_targets
 
 
 def random_crop_v2(imgs, img_size):
