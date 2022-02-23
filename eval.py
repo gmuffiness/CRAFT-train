@@ -1,204 +1,274 @@
-"""
-Copyright (c) 2019-present NAVER Corp.
-MIT License
-"""
-
 # -*- coding: utf-8 -*-
-import os
-import argparse
 
-import torch
-import torch.backends.cudnn as cudnn
+import argparse
+import os
 
 import cv2
 import numpy as np
+import torch
+import torch.backends.cudnn as cudnn
 from tqdm import tqdm
-
-from model.craft import CRAFT
-from utils.inference_boxes import test_net, load_icdar2015_gt, load_icdar2013_gt, load_synthtext_gt
-from collections import OrderedDict
-from metrics.eval_det_iou import DetectionIoUEvaluator
-
 import wandb
+import yaml
+
+from config.load_config import load_yaml, DotDict
+from model.craft import CRAFT
+from metrics.eval_det_iou import DetectionIoUEvaluator
+from utils.inference_boxes import (
+    test_net,
+    load_icdar2015_gt,
+    load_icdar2013_gt,
+    load_synthtext_gt,
+)
+from utils.util import copyStateDict
 
 
-def str2bool(v):
-    return v.lower() in ("yes", "y", "true", "t", "1")
+def save_result_synth(img_file, img, pre_output, pre_box, gt_box=None, result_dir=""):
 
-def copyStateDict(state_dict):
-    if list(state_dict.keys())[0].startswith("module"):
-        start_idx = 1
+    img = np.array(img)
+    img_copy = img.copy()
+    region = pre_output[0]
+    affinity = pre_output[1]
+
+    # make result file list
+    filename, file_ext = os.path.splitext(os.path.basename(img_file))
+
+    # draw bounding boxes for prediction, color green
+    for i, box in enumerate(pre_box):
+        poly = np.array(box).astype(np.int32).reshape((-1))
+        poly = poly.reshape(-1, 2)
+        try:
+            cv2.polylines(
+                img, [poly.reshape((-1, 1, 2))], True, color=(0, 255, 0), thickness=2
+            )
+        except:
+            pass
+
+    # draw bounding boxes for gt, color red
+    if gt_box is not None:
+        for j in range(len(gt_box)):
+            cv2.polylines(
+                img,
+                [np.array(gt_box[j]["points"]).astype(np.int32).reshape((-1, 1, 2))],
+                True,
+                color=(0, 0, 255),
+                thickness=2,
+            )
+
+    # draw overlay image
+    overlay_img = overlay(img_copy, region, affinity, pre_box)
+
+    # Save result image
+    res_img_path = result_dir + "/res_" + filename + ".jpg"
+    cv2.imwrite(res_img_path, img)
+
+    overlay_image_path = result_dir + "/res_" + filename + "_box.jpg"
+    cv2.imwrite(overlay_image_path, overlay_img)
+
+
+def save_result_2015(img_file, img, pre_output, pre_box, gt_box, result_dir):
+
+    img = np.array(img)
+    img_copy = img.copy()
+    region = pre_output[0]
+    affinity = pre_output[1]
+
+    # make result file list
+    filename, file_ext = os.path.splitext(os.path.basename(img_file))
+
+    for i, box in enumerate(pre_box):
+        poly = np.array(box).astype(np.int32).reshape((-1))
+        poly = poly.reshape(-1, 2)
+        try:
+            cv2.polylines(
+                img, [poly.reshape((-1, 1, 2))], True, color=(0, 255, 0), thickness=2
+            )
+        except:
+            pass
+
+    if gt_box is not None:
+        for j in range(len(gt_box)):
+            _gt_box = np.array(gt_box[j]["points"]).reshape(-1, 2).astype(np.int32)
+            if gt_box[j]["text"] == "###":
+                cv2.polylines(img, [_gt_box], True, color=(128, 128, 128), thickness=2)
+            else:
+                cv2.polylines(img, [_gt_box], True, color=(0, 0, 255), thickness=2)
+
+    # draw overlay image
+    overlay_img = overlay(img_copy, region, affinity, pre_box)
+
+    # Save result image
+    res_img_path = result_dir + "/res_" + filename + ".jpg"
+    cv2.imwrite(res_img_path, img)
+
+    overlay_image_path = result_dir + "/res_" + filename + "_box.jpg"
+    cv2.imwrite(overlay_image_path, overlay_img)
+
+
+def save_result_2013(img_file, img, pre_output, pre_box, gt_box=None, result_dir=""):
+
+    img = np.array(img)
+    img_copy = img.copy()
+    region = pre_output[0]
+    affinity = pre_output[1]
+
+    # make result file list
+    filename, file_ext = os.path.splitext(os.path.basename(img_file))
+
+    # draw bounding boxes for prediction, color green
+    for i, box in enumerate(pre_box):
+        poly = np.array(box).astype(np.int32).reshape((-1))
+        poly = poly.reshape(-1, 2)
+        try:
+            cv2.polylines(
+                img, [poly.reshape((-1, 1, 2))], True, color=(0, 255, 0), thickness=2
+            )
+        except:
+            pass
+
+    # draw bounding boxes for gt, color red
+    if gt_box is not None:
+        for j in range(len(gt_box)):
+            cv2.polylines(
+                img,
+                [np.array(gt_box[j]["points"]).reshape((-1, 1, 2))],
+                True,
+                color=(0, 0, 255),
+                thickness=2,
+            )
+
+    # draw overlay image
+    overlay_img = overlay(img_copy, region, affinity, pre_box)
+
+    # Save result image
+    res_img_path = result_dir + "/res_" + filename + ".jpg"
+    cv2.imwrite(res_img_path, img)
+
+    overlay_image_path = result_dir + "/res_" + filename + "_box.jpg"
+    cv2.imwrite(overlay_image_path, overlay_img)
+
+
+def overlay(image, region, affinity, single_img_bbox):
+
+    height, width, channel = image.shape
+
+    region_score = cv2.resize(region, (width, height))
+    affinity_score = cv2.resize(affinity, (width, height))
+
+    overlay_region = cv2.addWeighted(image.copy(), 0.4, region_score, 0.6, 5)
+    overlay_aff = cv2.addWeighted(image.copy(), 0.4, affinity_score, 0.6, 5)
+
+    # draw
+    boxed_img = image.copy()
+    for word_box in single_img_bbox:
+        cv2.polylines(
+            boxed_img,
+            [word_box.astype(np.int32).reshape((-1, 1, 2))],
+            True,
+            color=(0, 255, 0),
+            thickness=3,
+        )
+
+    temp1 = np.hstack([image, boxed_img])
+    temp2 = np.hstack([overlay_region, overlay_aff])
+    temp3 = np.vstack([temp1, temp2])
+
+    return temp3
+
+
+def load_test_dataset(test_folder_name, config):
+    # TODO if문을 삭제할 수 있지 않을까??
+
+    if test_folder_name == "synthtext":
+        total_bboxes_gt, total_img_path = load_synthtext_gt(config.test.test_folder)
+
+    elif test_folder_name == "icdar2013":
+        total_bboxes_gt, total_img_path = load_icdar2013_gt(
+            dataFolder=config.test.test_folder, isTraing=config.test.isTraingDataset
+        )
+
+    elif test_folder_name == "icdar2015":
+        total_bboxes_gt, total_img_path = load_icdar2015_gt(
+            dataFolder=config.test.test_folder, isTraing=config.test.isTraingDataset
+        )
+
     else:
-        start_idx = 0
-    new_state_dict = OrderedDict()
-    for k, v in state_dict.items():
-        name = ".".join(k.split(".")[start_idx:])
-        new_state_dict[name] = v
-    return new_state_dict
+        print("not found test dataset")
 
-def saveResult_2015(img_file, img, boxes, dirname='./result/', gt_file=None ):
-
-    """ save text detection result one by one
-    Args:
-        img_file (str): image file name
-        img (array): raw image context
-        boxes (array): array of result file
-            Shape: [num_detections, 4] for BB output / [num_detections, 4] for QUAD output
-    Return:
-        None
-    """
+    return total_bboxes_gt, total_img_path
 
 
-    img = np.array(img)
+def viz_test(img, pre_output, pre_box, gt_box, img_name, result_dir, test_folder_name):
 
-    # make result file list
-    filename, file_ext = os.path.splitext(os.path.basename(img_file))
-
-
-    for i, box in enumerate(boxes):
-
-        poly = np.array(box).astype(np.int32).reshape((-1))
-        poly = poly.reshape(-1, 2)
-        try:
-            cv2.polylines(img, [poly.reshape((-1, 1, 2))], True, color=(0, 255, 0), thickness=2)
-        except:
-            pass
-
-    if gt_file is not None:
-
-        gt_name = "gt_" + filename + '.txt'
-
-        with open(os.path.join(gt_file, gt_name), 'r', encoding="utf8", errors='ignore') as d:
-            for l in d.read().splitlines():
-                box = l.split(',')
-                box_gt = np.array(list(map(int, box[:8])))
-                gt_poly = box_gt.reshape(-1, 2)
-                gt_poly = np.array(gt_poly).astype(np.int32)
-
-                if box[-1] == '###':
-                    cv2.polylines(img, [gt_poly.reshape((-1, 1, 2))], True, color=(128, 128, 128), thickness=2)
-                else:
-                    cv2.polylines(img, [gt_poly.reshape((-1, 1, 2))], True, color=(0, 0, 255), thickness=2)
-
-    # Save result image
-    res_img_path = dirname + "/res_" + filename + '.jpg'
-    cv2.imwrite(res_img_path, img)
+    if test_folder_name == "synthtext":
+        save_result_synth(
+            img_name, img[:, :, ::-1].copy(), pre_output, pre_box, gt_box, result_dir
+        )
+    elif test_folder_name == "icdar2013":
+        save_result_2013(
+            img_name, img[:, :, ::-1].copy(), pre_output, pre_box, gt_box, result_dir
+        )
+    elif test_folder_name == "icdar2015":
+        save_result_2015(
+            img_name, img[:, :, ::-1].copy(), pre_output, pre_box, gt_box, result_dir
+        )
+    else:
+        print("not found test dataset")
 
 
+def main(model_path, config, evaluator, result_dir, viz=True):
 
-def saveResult_2013(img_file, img, boxes, dirname='./result/', gt_file=None):
-    """ save text detection result one by one
-    Args:
-        img_file (str): image file name
-        img (array): raw image context
-        boxes (array): array of result file
-            Shape: [num_detections, 4] for BB output / [num_detections, 4] for QUAD output
-    Return:
-        None
-    """
-    img = np.array(img)
+    # test 폴더에 대한 학습된 모델의 f1-score를 계산
+    # test 폴더에 대한 model의 output 시각화
+    # TODO loss 까지 구할 수 있도록?
 
-    # make result file list
-    filename, file_ext = os.path.splitext(os.path.basename(img_file))
+    # model_path : 학습된 모델의 저장 경로
+    # config : test에 필요한 configuration, dict type
+    # evaluator : test function
 
-    for i, box in enumerate(boxes):
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
+    test_folder_name = config.test.test_folder.split("/")[-2].lower()
 
-        poly = np.array(box).astype(np.int32).reshape((-1))
-        poly = poly.reshape(-1, 2)
-        try:
-            cv2.polylines(img, [poly.reshape((-1, 1, 2))], True, color=(0, 255, 0), thickness=2)
-        except:
-            pass
-
-    if gt_file is not None:
-
-        gt_name = "gt_" + filename + '.txt'
-
-        with open(os.path.join(gt_file, gt_name), 'r', encoding="utf8", errors='ignore') as d:
-            for l in d.read().splitlines():
-                box = l.split(',')
-                box = [int(box[j]) for j in range(4)]
-                box_gt = np.array([[box[0], box[1]], [box[2], box[1]], [box[2], box[3]], [box[0], box[3]]])
-
-                gt_poly = box_gt.reshape(-1, 2)
-                gt_poly = np.array(gt_poly).astype(np.int32)
-
-                cv2.polylines(img, [gt_poly.reshape((-1, 1, 2))], True, color=(0, 0, 255), thickness=2)
-
-
-    # Save result image
-    res_img_path = dirname + "/res_" + filename + '.jpg'
-    cv2.imwrite(res_img_path, img)
-
-
-def main(model_path, args, evaluator, data_li=''):
-
-
-    # load net
-
+    # load model
     model = CRAFT()  # initialize
-    wandb.watch(model)
-    # net = UNetWithResnet50Encoder()
-    print('Loading weights from checkpoint (' + model_path + ')')
+    print("Loading weights from checkpoint (" + model_path + ")")
     net_param = torch.load(model_path)
+    model.load_state_dict(copyStateDict(net_param["craft"]))
 
-    try:
-        model.load_state_dict(copyStateDict(net_param['craft']))
-    except:
-        model.load_state_dict(copyStateDict(net_param))
-
-    if args.cuda:
+    if config.test.cuda:
         model = model.cuda()
         model = torch.nn.DataParallel(model)
         cudnn.benchmark = False
+
     model.eval()
-    # print('Model setting completed.')
+    # ------------------------------------------------------------------------------------------------------------------#
 
-    if data_li != '':
-        total_imgs_bboxes_gt, total_img_path = load_synthtext_gt(args.synthData_dir, data_li=data_li)
+    total_imgs_bboxes_gt, total_imgs_path = load_test_dataset(test_folder_name, config)
 
-    else:
-        test_folder = args.test_folder
-
-
-
-        if test_folder.split('/')[-1].lower() == 'icdar2013':
-            total_imgs_bboxes_gt, total_img_path, gt_folder_path = load_icdar2013_gt(dataFolder=test_folder,
-                                                                     isTraing=args.isTraingDataset)
-        else:
-            total_imgs_bboxes_gt, total_img_path, gt_folder_path = load_icdar2015_gt(dataFolder=test_folder,
-                                                                     isTraing=args.isTraingDataset)
-
-    # print('icdar2015 data setting completed.')
+    # -----------------------------------------------------------------------------------------------------------------#
 
     total_img_bboxes_pre = []
-    for k, img_path in enumerate(tqdm(total_img_path)):
+    for k, img_path in enumerate(tqdm(total_imgs_path)):
+
+        # if img_path.split('/')[-1] == 'img_39.jpg':
+
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        #image = imgproc.loadImage(img_path)
         single_img_bbox = []
-        bboxes, polys, score_text = test_net(model,
-                                             image,
-                                             args.text_threshold,
-                                             args.link_threshold,
-                                             args.low_text,
-                                             args.cuda,
-                                             args.poly,
-                                             args.canvas_size,
-                                             args.mag_ratio)
+        bboxes, polys, score_text = test_net(
+            model,
+            image,
+            config.test.text_threshold,
+            config.test.link_threshold,
+            config.test.low_text,
+            config.test.cuda,
+            config.test.poly,
+            config.test.canvas_size,
+            config.test.mag_ratio,
+        )
 
-
-        if test_folder.split('/')[-1].lower() == 'icdar2013':
-            rnd_list = [136, 210,  64,  97, 209,  87,  91, 169, 173, 191,  89, 177,  62,
-                        105, 124, 213,  207, 216, 217,  34, 187,  42, 102, 113, 111, 176, 182, 1, 5, 8 ]
-        else:
-            rnd_list = [1, 264, 135, 352, 481, 250, 355, 436, 45, 181, 98, 173, 267, 200, 79, 395,
-                        399, 162, 184, 217, 327, 344, 11, 107, 299, 244, 271, 92, 149, 259]
-
-
-        viz = True
-        if k in rnd_list:
-            viz = True
+        # -------------------------------------------------------------------------------------------------------------#
 
         for box in bboxes:
             box_info = {"points": None, "text": None, "ignore": None}
@@ -208,106 +278,54 @@ def main(model_path, args, evaluator, data_li=''):
             single_img_bbox.append(box_info)
         total_img_bboxes_pre.append(single_img_bbox)
 
-        # ------------------------------------------------------------------------------------------------------- #
+        # -------------------------------------------------------------------------------------------------------------#
 
-        # if viz == True:
-        #
-        #     result_folder_name = (args.trained_model).split('/')[-2] + '_test_output_aligned_official_hp_setting'
-        #
-        #     outpath = os.path.join(os.path.join(args.results_dir, result_folder_name), str(utils.config.ITER))
-        #     if not os.path.exists(outpath):
-        #         os.makedirs(outpath)
-        #
-        #     if test_folder.split('/')[-1].lower() == 'icdar2013':
-        #         saveResult_2013(img_path, image[:, :, ::-1].copy(), polys, dirname=outpath, gt_file=gt_folder_path)
-        #     else:
-        #         saveResult_2015(img_path, image[:, :, ::-1].copy(), polys, dirname=outpath, gt_file=gt_folder_path)
-        #
-        #
-        #
-        #     height, width, channel = image.shape
-        #
-        #     # ========== To save training image's region score with Official pretrained model ==========================
-        #
-        #     # if score_text[0].shape != (544, 960):
-        #     #     import ipdb; ipdb.set_trace()
-        #     # score_text[0] = score_text[0][:-4,:]
-        #     # score_text[1] = score_text[1][:-4,:]
-        #
-        #     # ==========================================================================================================
-        #     overlay_region = cv2.resize(score_text[0], (width, height))
-        #     overlay_aff = cv2.resize(score_text[1], (width, height))
-        #
-        #     overlay_region = cv2.addWeighted(image.copy(), 0.4, overlay_region, 0.6, 5)
-        #     overlay_aff = cv2.addWeighted(image.copy(), 0.4, overlay_aff, 0.6, 5)
-        #
-        #     # save overlay
-        #     filename, file_ext = os.path.splitext(os.path.basename(img_path))
-        #     overlay_region_file = outpath + "/res_" + filename + '_region.jpg'
-        #     # cv2.imwrite(overlay_region_file, overlay_region)
-        #
-        #     filename, file_ext = os.path.splitext(os.path.basename(img_path))
-        #     overlay_aff_file = outpath + "/res_" + filename + '_affi.jpg'
-        #     # cv2.imwrite(overlay_aff_file, overlay_aff)
-        #
-        #     ori_image_path = outpath + "/res_" + filename + '.jpg'
-        #     # cv2.imwrite(ori_image_path,image)
-        #
-        #     boxed_img = image.copy()
-        #     for word_box in single_img_bbox:
-        #         # sp = np.clip(np.min(word_box['points'], axis=0), 0, max(height, width)).astype(np.uint32)
-        #         # ep = np.max(word_box['points'], axis=0).astype(np.uint32)
-        #         # cv2.rectangle(boxed_img, sp, ep, (0, 0, 255), 3)
-        #         # import ipdb;ipdb.set_trace()
-        #         cv2.polylines(boxed_img, [word_box['points'].astype(np.int32).reshape((-1, 1, 2))], True, color=(0, 255, 0), thickness=3)
-        #
-        #     box_image_path = outpath + "/res_" + filename + '_box.jpg'
-        #     cv2.imwrite(box_image_path, boxed_img)
-        #
-        #     temp1 = np.hstack([image, boxed_img])
-        #     temp2 = np.hstack([overlay_region, overlay_aff])
-        #     temp3 = np.vstack([temp1, temp2])
-        #
-        #     cv2.imwrite(box_image_path, temp3)
-        # # # --------------------------------------------------------------------------------------------------------#
+        viz_test(
+            image,
+            score_text,
+            pre_box=polys,
+            gt_box=total_imgs_bboxes_gt[k],
+            img_name=img_path,
+            result_dir=result_dir,
+            test_folder_name=test_folder_name,
+        )
+
+    # ------------------------------------------------------------------------------------------------------------------#
+
     # print('Predict bbox points completed.')
-
     results = []
     for gt, pred in zip(total_imgs_bboxes_gt, total_img_bboxes_pre):
         results.append(evaluator.evaluate_image(gt, pred))
     metrics = evaluator.combine_results(results)
     print(metrics)
 
-    wandb.log({"precision": metrics['precision'], "recall": metrics['recall'], "hmean": metrics['hmean']})
+    # wandb.log({"precision": metrics['precision'], "recall": metrics['recall'], "hmean": metrics['hmean']})
     return metrics
 
-if __name__ == '__main__':
 
+if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description='CRAFT Text Detection')
-    parser.add_argument('--trained_model',
-                        default='/data/workspace/woans0104/CRAFT-new-backtime92/exp/my_syn_new_v1/weights_52000.pth',
-                        type=str, help='pretrained model')
-    parser.add_argument('--text_threshold', default=0.85, type=float, help='text confidence threshold')
-    parser.add_argument('--low_text', default=0.5, type=float, help='text low-bound score')
-    parser.add_argument('--link_threshold', default=0.2, type=float, help='link confidence threshold')
-    parser.add_argument('--cuda', default=True, type=str2bool, help='Use cuda for inference')
-    parser.add_argument('--amp', default=False, type=str2bool, help='Use cuda for inference')
-    parser.add_argument('--canvas_size', default=2240, type=int, help='image size for inference')
-    parser.add_argument('--mag_ratio', default=1.5, type=float, help='image magnification ratio')
-    parser.add_argument('--poly', default=False, action='store_true', help='enable polygon type')
-    parser.add_argument('--isTraingDataset', default=False, type=str2bool, help='test for traing or test data')
-    parser.add_argument('--test_folder', default='/data/ICDAR2015', type=str,
-                        help='folder path to input images')
-    parser.add_argument('--results_dir', default='/nas/home/gmuffiness/result/ocr/icdar2015', type=str,
-                        help='Path to save checkpoints')
-
-
+    parser = argparse.ArgumentParser(description="CRAFT Text Detection Eval")
+    parser.add_argument(
+        "--yaml",
+        "--yaml_file_name",
+        default="./exp/synthtext/",
+        type=str,
+        help="Load configuration",
+    )
     args = parser.parse_args()
-    wandb.init(project='ocr_craft')
-    wandb.run.name = args.trained_model.split('/')[-2][-4:] + '_eval'
-    wandb.config.update(args)
+
+    # load configure
+    config = load_yaml(args.yaml)
+    config = DotDict(config)
+
+    # Make result_dir
+    res_dir = os.path.join(os.path.join("exp", args.yaml), "result")
+    config.results_dir = res_dir
+
+    # wandb
+    wandb.init(project="jm-test", entity="pingu", name=args.yaml)
+    wandb.config.update(config)
 
     evaluator = DetectionIoUEvaluator()
-
-    main(args.trained_model, args, evaluator)
+    main(config.test.trained_model, config, evaluator, res_dir)
