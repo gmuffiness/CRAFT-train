@@ -1,5 +1,6 @@
 
 results_dir : "./exp/"
+vis_test_dir : "/nas/home/gmuffiness/result/"
 data_dir:
   synthtext : "/data/SynthText/"
   synthtext_gt : "/data/SynthText/"
@@ -22,6 +23,9 @@ train:
   data:
     output_size: 768
     enlargeSize: 0.75
+    gaussian:
+      init_size: 200
+      sigma: 40
     rnd_crop: "rnd_back"
     aug: True
     logging: False
