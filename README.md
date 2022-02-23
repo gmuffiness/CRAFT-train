@@ -34,7 +34,7 @@
 CUDA_VISIBLE_DEVICES=0,1 python3 trainSynth.py --yaml=test
 ```
 * ```--yaml:``` yaml file name
-+ The experiment results will be saved to ```./exp/yaml``` by default.
++ The experiment results will be saved to ```./exp/[yaml]``` by default.
 
 
 
