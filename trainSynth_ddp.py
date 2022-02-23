@@ -1,10 +1,7 @@
 import os
-import cv2
 import time
 import wandb
 import argparse
-import numpy as np
-from tqdm import tqdm
 from collections import OrderedDict
 import yaml
 import torch
@@ -16,13 +13,9 @@ import shutil
 
 from eval import main as main_eval
 from model.craft import CRAFT
-from utils import config
-from loss.mseloss import Maploss, Maploss_v2, Maploss_v3
+from loss.mseloss import Maploss_v2, Maploss_v3
 from data.dataset import SynthTextDataLoader
 from metrics.eval_det_iou import DetectionIoUEvaluator
-from utils.util import save_parser
-
-
 
 
 class Trainer(object):

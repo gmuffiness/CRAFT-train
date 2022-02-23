@@ -1,22 +1,13 @@
 import scipy.io as scio
 import os
 import torch.utils.data as data
-import torchvision.transforms as transforms
 import cv2
 import numpy as np
 import re
 import itertools
-from PIL import Image
-
-from data import imgproc
-from utils import config
 
 from data.gaussian import GaussianTransformer
-from data.imgaug import random_scale_for_synth, random_crop
-
-
-
-
+from data.imgaug import random_scale_for_synth
 
 
 class SynthTextDataLoader(data.Dataset):

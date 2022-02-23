@@ -2,16 +2,13 @@
 
 from collections import OrderedDict
 import os
-import time
 
 import cv2
 import numpy as np
-import torch
-from torch.autograd import Variable
 
 from data import imgproc
 
-from utils import config
+from config import config
 from utils import craft_utils
 
 

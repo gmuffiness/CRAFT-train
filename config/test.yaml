@@ -1,0 +1,36 @@
+
+results_dir : "./exp/"
+synthData_dir : "/data/SynthText/"
+
+
+train:
+  ckpt_path: null
+  target_size : 384
+  batch_size: 16
+  st_iter: 0
+  end_iter: 100
+  lr: 0.0001
+  lr_decay: 10000
+  gamma: 0.8
+  weight_decay: 0.0001
+  num_workers: 0
+  loss: 3
+  neg_rto: 3
+  enlargeSize: 0.75
+  rnd_crop: "rnd_back"
+  aug: True
+  amp: True
+
+test:
+  test_folder: "/data/ICDAR2013/"
+  trained_model: ""
+  text_threshold: 0.85 # ICDAR2015 0.85
+  low_text: 0.5 # ICDAR2015 0.5
+  link_threshold: 0.2 # ICDAR2013: 0.2
+  cuda: True
+  canvas_size: 960
+  mag_ratio: 1.5
+  poly: False
+  isTraingDataset: False
+
+

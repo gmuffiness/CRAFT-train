@@ -23,6 +23,7 @@ class SynthTextDataSet(Dataset):
         self.img_names, self.char_bbox, self.img_words = self.load_data()
         self.logging = logging
 
+    # NOTE
     def load_data(self, bbox="char"):
 
         gt = scio.loadmat(os.path.join(self.data_dir, "gt.mat"))
@@ -47,8 +48,8 @@ class SynthTextDataSet(Dataset):
         # EDIT when saved scores are ready
         # region_score = os.path.join(self.saved_gt_dir, self.img_names[index][0])
         # affinity_score = os.path.join(self.saved_gt_dir, self.img_names[index][0])
-        region_score = image
-        affinity_score = image
+        region_score = image[:,:,0]
+        affinity_score = image[:,:,0]
 
         confidence_mask = np.ones((image.shape[0], image.shape[1]), dtype=np.uint8)
 
@@ -142,9 +143,14 @@ class SynthTextDataSet(Dataset):
                 words,
             ) = self.load_saved_gt(index)
 
-        if cfg.train.data.aug:
             image, region_score, affinity_score, confidence_mask = \
                 self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
+
+
+        # NOTE
+        # if cfg.train.data.aug:
+        #     image, region_score, affinity_score, confidence_mask = \
+        #         self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
 
         if self.logging:
             saveInput(
