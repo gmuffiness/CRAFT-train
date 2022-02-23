@@ -93,7 +93,7 @@ def generate_gt(i):
         affi_gauss = GaussianTransformer(imgSize=200, enlargeSize=enlarge_affi)
         affinity_scores, _ = affi_gauss.generate_affinity(image.shape,
                                                           charbboxes,
-                                                          text[i], name[index][0])
+                                                          text[i])
 
         path = f"{save_dir}/affinity/enlarge-{1 + enlarge_affi}/"
         if not os.path.exists(os.path.join(path, located_folder)):
