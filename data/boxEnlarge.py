@@ -2,38 +2,6 @@ import numpy as np
 import math
 import config.config
 
-
-def enlarge_box_for_rectangle(box, imgh, imgw):
-    boxw = box[1][0] - box[0][0]
-    boxh = box[2][1] - box[1][1]
-
-    if imgh <= boxh or imgw <= boxw:
-        return box
-
-    enlargew = boxw * 0.5
-    enlargeh = boxh * 0.5
-
-    # 상자는 명확성을 위해 이 부분을 확장하고 코드는 중복으로 작성됩니다.
-    # 확장 후 왼쪽 상단 모서리 정점의 좌표, 나머지 점은 시계 방향 등입니다.
-    box[0][0], box[0][1] = (
-        max(0, box[0][0] - int(enlargew * 0.5)),
-        max(0, box[0][1] - int(enlargeh * 0.5)),
-    )
-    box[1][0], box[1][1] = (
-        min(imgw, box[1][0] + int(enlargew * 0.5)),
-        max(0, box[1][1] - int(enlargeh * 0.5)),
-    )
-    box[2][0], box[2][1] = (
-        min(imgw, box[2][0] + int(enlargew * 0.5)),
-        min(imgh, box[2][1] + int(enlargeh * 0.5)),
-    )
-    box[3][0], box[3][1] = (
-        max(0, box[3][0] - int(enlargew * 0.5)),
-        min(imgh, box[3][1] + int(enlargeh * 0.5)),
-    )
-
-    return box
-
 def pointAngle(Apoint, Bpoint):
     angle = (Bpoint[1] - Apoint[1]) / ((Bpoint[0] - Apoint[0]) + 10e-8)
     return angle
