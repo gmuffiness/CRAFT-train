@@ -10,6 +10,7 @@ from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 
 from data import imgproc
+from data.gaussian import GaussianBuilder
 from data.imgaug import random_crop_with_bbox_adapt_to_output_size
 from utils.util import saveInput, saveImage
 
@@ -21,6 +22,7 @@ class SynthTextDataSet(Dataset):
         self.data_dir = data_dir
         self.saved_gt_dir = saved_gt_dir
         self.img_names, self.char_bbox, self.img_words = self.load_data()
+        self.gaussian_builder = GaussianBuilder(cfg.train.data.gaussian.init_size, cfg.train.data.gaussian.sigma)
         self.logging = logging
 
     # NOTE
@@ -78,9 +80,44 @@ class SynthTextDataSet(Dataset):
             words,
         )
 
-    # TODO
     def make_pseudo_gt(self, index):
-        return 0
+        img_path = os.path.join(self.data_dir, self.img_names[index][0])
+        image = cv2.imread(img_path, cv2.IMREAD_COLOR)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        all_char_bbox = self.char_bbox[index].transpose((2, 1, 0))
+
+        image, all_char_bbox = self.dilate_img_to_output_size(image, all_char_bbox)
+        img_h, img_w, _ = image.shape
+
+        confidence_mask = np.ones((img_h, img_w), dtype=np.uint8)
+
+        words = [re.split(" \n|\n |\n| ", word.strip()) for word in self.img_words[index]]
+        words = list(itertools.chain(*words))
+        words = [word for word in words if len(word) > 0]
+
+        word_level_char_bbox = []
+        char_idx = 0
+        for i in range(len(words)):
+            length_of_word = len(words[i])
+            word_bbox = all_char_bbox[char_idx : char_idx + length_of_word]
+            assert len(word_bbox) == length_of_word
+            char_idx += length_of_word
+            word_bbox = np.array(word_bbox)
+            word_level_char_bbox.append(word_bbox)
+
+        region_score = self.gaussian_builder.generate_region(img_h, img_w, word_level_char_bbox)
+        affinity_score, _ = self.gaussian_builder.generate_affinity(img_h, img_w, word_level_char_bbox, words)
+
+        # TODO: output validation check
+
+        return (
+            image,
+            region_score,
+            affinity_score,
+            confidence_mask,
+            word_level_char_bbox,
+            words,
+        )
 
     def dilate_img_to_output_size(self, image, char_bbox):
         h, w = image.shape[0:2]

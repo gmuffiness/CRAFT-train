@@ -158,6 +158,6 @@ if __name__ == '__main__':
     p.map(generate_gt, range(len(name)))
     p.close()
     p.join()
-    print('=============== done ===============')
 
+    print('=============== done ===============')
 
