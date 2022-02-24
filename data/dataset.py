@@ -16,13 +16,14 @@ from utils.util import saveInput, saveImage
 
 
 class SynthTextDataSet(Dataset):
-    def __init__(self, output_size, data_dir, saved_gt_dir, logging):
+    def __init__(self, output_size, data_dir, saved_gt_dir, gauss_init_size, gauss_sigma, enlarge_size, aug, logging):
 
         self.output_size = output_size
         self.data_dir = data_dir
         self.saved_gt_dir = saved_gt_dir
         self.img_names, self.char_bbox, self.img_words = self.load_data()
-        self.gaussian_builder = GaussianBuilder(cfg.train.data.gaussian.init_size, cfg.train.data.gaussian.sigma)
+        self.gaussian_builder = GaussianBuilder(gauss_init_size, gauss_sigma, enlarge_size)
+        self.aug = aug
         self.logging = logging
 
     # NOTE
@@ -106,7 +107,7 @@ class SynthTextDataSet(Dataset):
             word_level_char_bbox.append(word_bbox)
 
         region_score = self.gaussian_builder.generate_region(img_h, img_w, word_level_char_bbox)
-        affinity_score, _ = self.gaussian_builder.generate_affinity(img_h, img_w, word_level_char_bbox, words)
+        affinity_score, _ = self.gaussian_builder.generate_affinity(img_h, img_w, word_level_char_bbox)
 
         # TODO: output validation check
 
@@ -161,7 +162,7 @@ class SynthTextDataSet(Dataset):
 
     def __getitem__(self, index):
 
-        if self.saved_gt_dir == "":
+        if self.saved_gt_dir == None:
             (
                 image,
                 region_score,
@@ -180,14 +181,10 @@ class SynthTextDataSet(Dataset):
                 words,
             ) = self.load_saved_gt(index)
 
+
+        if self.aug:
             image, region_score, affinity_score, confidence_mask = \
                 self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
-
-
-        # NOTE
-        # if cfg.train.data.aug:
-        #     image, region_score, affinity_score, confidence_mask = \
-        #         self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
 
         if self.logging:
             saveInput(

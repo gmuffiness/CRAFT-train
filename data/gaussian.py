@@ -5,9 +5,10 @@ from data.boxEnlarge import enlargebox
 
 
 class GaussianBuilder(object):
-    def __init__(self, init_size, sigma):
+    def __init__(self, init_size, sigma, enlarge_size):
         self.init_size = init_size
         self.sigma = sigma
+        self.enlarge_size = enlarge_size
         self.gaussian_map, self.gaussian_map_color = self.generate_gaussian_map()
 
     def generate_gaussian_map(self):
@@ -17,8 +18,12 @@ class GaussianBuilder(object):
 
         for i in range(self.init_size):
             for j in range(self.init_size):
-                gaussian_map[i, j] = 1 / 2 / np.pi / (self.sigma ** 2) * np.exp(
-                    -1 / 2 * ((i - self.init_size / 2) ** 2 / (self.sigma ** 2) + (j - self.init_size / 2) ** 2 / (self.sigma ** 2)))
+                gaussian_map[i, j] = 1 / 2 / np.pi / (self.sigma ** 2)\
+                                     * np.exp(-1 / 2 * ((i - self.init_size / 2) ** 2 / (self.sigma ** 2)
+                                                        + (j - self.init_size / 2) ** 2 / (self.sigma ** 2)))
+
+
+
 
         gaussian_map = gaussian_map * circle_mask
         gaussian_map = (gaussian_map / np.max(gaussian_map)).astype(np.float32)
@@ -72,7 +77,7 @@ class GaussianBuilder(object):
 
         if map_type == "region":
             # TODO : edit enlargebox output type from int 32 to float32
-            bbox = enlargebox(bbox, image.shape[0], image.shape[1])
+            bbox = enlargebox(bbox, image.shape[0], image.shape[1], self.enlarge_size)
 
         if (
             np.any(bbox < 0)
