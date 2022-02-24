@@ -48,11 +48,10 @@ class SynthTextDataSet(Dataset):
 
         image, all_char_bbox = self.dilate_img_to_output_size(image, all_char_bbox)
 
-        # EDIT when saved scores are ready
-        # region_score = os.path.join(self.saved_gt_dir, self.img_names[index][0])
-        # affinity_score = os.path.join(self.saved_gt_dir, self.img_names[index][0])
-        region_score = image[:,:,0]
-        affinity_score = image[:,:,0]
+        region_score_path = os.path.join(os.path.join(self.saved_gt_dir, 'region/enlarge-1.75'), self.img_names[index][0][:-4] + '-region.jpg')
+        affinity_score_path = os.path.join(os.path.join(self.saved_gt_dir, 'affinity/enlarge-1.75'), self.img_names[index][0][:-4] + '-affinity.jpg')
+        region_score = cv2.imread(region_score_path, cv2.IMREAD_GRAYSCALE)
+        affinity_score = cv2.imread(affinity_score_path, cv2.IMREAD_GRAYSCALE)
 
         confidence_mask = np.ones((image.shape[0], image.shape[1]), dtype=np.uint8)
 
@@ -105,7 +104,7 @@ class SynthTextDataSet(Dataset):
             char_idx += length_of_word
             word_bbox = np.array(word_bbox)
             word_level_char_bbox.append(word_bbox)
-
+        print(f'init bboxes : {word_level_char_bbox[0][0]}')
         region_score = self.gaussian_builder.generate_region(img_h, img_w, word_level_char_bbox)
         affinity_score, _ = self.gaussian_builder.generate_affinity(img_h, img_w, word_level_char_bbox)
 
@@ -132,6 +131,11 @@ class SynthTextDataSet(Dataset):
 
     def augment_image(self, image, region_score, affinity_score, confidence_mask, word_level_char_bbox):
 
+        # TODO : temporary resize
+        region_score = cv2.resize(region_score, dsize=(image.shape[1], image.shape[0]))
+        affinity_score = cv2.resize(affinity_score, dsize=(image.shape[1], image.shape[0]))
+
+
         augment_targets = [image, region_score, affinity_score, confidence_mask]
 
         # TODO
@@ -140,6 +144,7 @@ class SynthTextDataSet(Dataset):
         # 2. scale
 
         # 3. crop
+        print(f'after aug bboxes : {word_level_char_bbox[0][0]}')
         augment_targets = random_crop_with_bbox_adapt_to_output_size(
             augment_targets, word_level_char_bbox, self.output_size
         )
@@ -147,12 +152,12 @@ class SynthTextDataSet(Dataset):
         # 4. horizontal flip
 
         # 5. colorjitter
-        image, region_image, affinity_image, confidence_mask = augment_targets
+        image, region_score, affinity_score, confidence_mask = augment_targets
 
         image = Image.fromarray(image)
         image = transforms.ColorJitter(brightness=32.0 / 255, saturation=0.5)(image)
 
-        return image, region_score, affinity_score, confidence_mask
+        return np.array(image), region_score, affinity_score, confidence_mask
 
     def resize_to_half(self, ground_truth):
         return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2))
@@ -162,7 +167,8 @@ class SynthTextDataSet(Dataset):
 
     def __getitem__(self, index):
 
-        if self.saved_gt_dir == None:
+        if self.saved_gt_dir == "":
+            print('Make pseudo GT to train.')
             (
                 image,
                 region_score,
@@ -172,6 +178,7 @@ class SynthTextDataSet(Dataset):
                 words,
             ) = self.make_pseudo_gt(index)
         else:
+            print('Use saved GT to train.')
             (
                 image,
                 region_score,
@@ -181,6 +188,10 @@ class SynthTextDataSet(Dataset):
                 words,
             ) = self.load_saved_gt(index)
 
+        print(f'mid bboxes : {word_level_char_bbox[0][0]}')
+        if self.logging:
+            saveImage(self.img_names[index][0], image.copy(), word_level_char_bbox.copy(),
+                      region_score.copy(), affinity_score.copy(), confidence_mask.copy())
 
         if self.aug:
             image, region_score, affinity_score, confidence_mask = \
@@ -194,7 +205,7 @@ class SynthTextDataSet(Dataset):
                 affinity_score,
                 confidence_mask,
             )
-            self.logging = False
+            # self.logging = False
 
         region_score = self.resize_to_half(region_score)
         affinity_score = self.resize_to_half(affinity_score)

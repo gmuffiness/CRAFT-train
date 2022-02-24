@@ -1,5 +1,7 @@
-cd /nas/home/gmuffiness/workspace/ocr_related/daintlab-CRAFT-Reimplementation/clean-code/unittest
-python3 dataloader_test.py
-echo $PYTHONPATH
-export PYTHONPATH=$PYTHONPATH:$/nas/home/gmuffiness/workspace/ocr_related/daintlab-CRAFT-Reimplementation/clean-code/config
-vim ~/.bashrc
+# Guide : Set PYTHONPATH
+
+# 1. vim ~/.bashrc
+
+# Add below line to 'bashrc' file
+# 2. export PYTHONPATH=$PYTHONPATH:${YOUR_PROJECT_ROOT_PATH}
+

@@ -24,7 +24,6 @@ from model.craft import CRAFT
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils.util import copyStateDict, save_parser
 
-
 class Trainer(object):
     def __init__(self, config):
 
