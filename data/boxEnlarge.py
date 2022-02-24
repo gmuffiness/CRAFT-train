@@ -18,13 +18,13 @@ def lineBiasAndK(Apoint, Bpoint):
 def getX(K, B, Ypoint):
     return int((Ypoint-B)/K)
 
-def sidePoint(Apoint, Bpoint, h, w, placehold):
+def sidePoint(Apoint, Bpoint, h, w, placehold, enlarge_size):
 
     K, B = lineBiasAndK(Apoint, Bpoint)
     angle = abs(math.atan(pointAngle(Apoint, Bpoint)))
     distance = pointDistance(Apoint, Bpoint)
 
-    halfIncreaseDistance = config.config.ENLARGEBOX_MAGINE * distance
+    halfIncreaseDistance = enlarge_size * distance
 
     XaxisIncreaseDistance = abs(math.cos(angle) * halfIncreaseDistance)
     YaxisIncreaseDistance = abs(math.sin(angle) * halfIncreaseDistance)
@@ -45,7 +45,7 @@ def sidePoint(Apoint, Bpoint, h, w, placehold):
     return int(x1), int(y1)
 
 # 将box扩大1.5倍
-def enlargebox(box, h, w):
+def enlargebox(box, h, w, enlarge_size):
 
 
     # box = [Apoint, Bpoint, Cpoint, Dpoint]
@@ -56,9 +56,9 @@ def enlargebox(box, h, w):
     Y = K1 * X + B1
     center = [X, Y]
 
-    x1, y1 = sidePoint(Apoint, center, h, w, 'leftTop')
-    x2, y2 = sidePoint(center, Bpoint, h, w, 'rightTop')
-    x3, y3 = sidePoint(center, Cpoint, h, w, 'rightBottom')
-    x4, y4 = sidePoint(Dpoint, center, h, w, 'leftBottom')
+    x1, y1 = sidePoint(Apoint, center, h, w, 'leftTop', enlarge_size)
+    x2, y2 = sidePoint(center, Bpoint, h, w, 'rightTop', enlarge_size)
+    x3, y3 = sidePoint(center, Cpoint, h, w, 'rightBottom', enlarge_size)
+    x4, y4 = sidePoint(Dpoint, center, h, w, 'leftBottom', enlarge_size)
     newcharbox = np.array([[x1, y1], [x2, y2], [x3, y3], [x4, y4]])
     return newcharbox
