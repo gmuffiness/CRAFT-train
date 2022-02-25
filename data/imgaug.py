@@ -1,65 +1,63 @@
-import cv2
-import numpy as np
 import random
 
-def random_scale_for_synth(img, bboxes, min_size):
-    h, w = img.shape[0:2]
-    if max(h, w) > 1280:
-        scale = 1280.0 / max(h, w)
-        img = cv2.resize(img, dsize=None, fx=scale, fy=scale)
-        bboxes *= scale
+import cv2
+import numpy as np
+from PIL import Image
+from torchvision.transforms.functional import resized_crop
+from torchvision.transforms import RandomResizedCrop
 
-    h, w = img.shape[0:2]
-    scale = 1
+def random_scale(images, word_level_char_bbox, scale_range):
+    scale = random.sample(scale_range, 1)[0]
 
-    if min(h, w) * scale <= min_size:
-        scale = (min_size + 10) * 1.0 / min(h, w)
-    bboxes *= scale
-    img = cv2.resize(img, dsize=None, fx=scale, fy=scale)
-    return img
+    for i in range(len(images)):
+        images[i] = cv2.resize(images[i], dsize=None, fx=scale, fy=scale)
 
+    for i in range(len(word_level_char_bbox)):
+        word_level_char_bbox[i] *= scale
 
-def random_scale(img, bboxes, min_size):
-    h, w = img.shape[0:2]
-    if max(h, w) > 1280:
-        scale = 1280.0 / max(h, w)
-        img = cv2.resize(img, dsize=None, fx=scale, fy=scale)
-        bboxes *= scale
+    return images, word_level_char_bbox
 
-    h, w = img.shape[0:2]
-    random_scale = [0.5, 1.0, 1.5]
-    # scale = np.random.choice(random_scale)
-    scale = random.sample(random_scale, 1)[0]
+def random_rotate(images, max_angle):
+    angle = random.random() * 2 * max_angle - max_angle
 
+    for i in range(len(images)):
+        img = images[i]
+        w, h = img.shape[:2]
+        rotation_matrix = cv2.getRotationMatrix2D((h / 2, w / 2), angle, 1)
+        img_rotation = cv2.warpAffine(img, rotation_matrix, (h, w))
+        images[i] = img_rotation
+    return images
 
-    if min(h, w) * scale <= min_size:
-        scale = (min_size + 10) * 1.0 / min(h, w)
-    bboxes *= scale
-    img = cv2.resize(img, dsize=None, fx=scale, fy=scale)
+def random_resize_crop(augment_targets, scale, ratio, size):
+    # --------------------------------------------------------------------------------------------------------------#
+    image, region_score, affinity_score, confidence_mask = augment_targets
 
-    return img
+    image = Image.fromarray(image)
+    region_score = Image.fromarray(region_score)
+    affinity_score = Image.fromarray(affinity_score)
+    confidence_mask = Image.fromarray(confidence_mask)
 
-#TODO
-def random_scale2(img, min_size, rnd_scale, bboxes=[]):
-    h, w = img.shape[0:2]
-    if max(h, w) > 1280:
-        scale = 1280.0 / max(h, w)
-        img = cv2.resize(img, dsize=None, fx=scale, fy=scale)
-        if len(bboxes) != 0:
-            bboxes *= scale
+    i, j, h, w = RandomResizedCrop.get_params(image, scale=scale, ratio=ratio)
 
-    h, w = img.shape[0:2]
+    image = resized_crop(image, i, j, h, w, size=(size, size))
+    region_score = resized_crop(region_score, i, j, h, w, (size, size))
+    affinity_score = resized_crop(affinity_score, i, j, h, w, (size, size))
+    confidence_mask = resized_crop(confidence_mask, i, j, h, w, (size, size))
 
-    if min(h, w) * rnd_scale <= min_size:
-        rnd_scale = (min_size + 10) * 1.0 / min(h, w)
+    image = np.array(image)
+    region_score = np.array(region_score)
+    affinity_score = np.array(affinity_score)
+    confidence_mask = np.array(confidence_mask)
+    augment_targets = [image, region_score, affinity_score, confidence_mask]
+    # --------------------------------------------------------------------------------------------------------------#
 
+    return augment_targets
 
-    if len(bboxes) != 0:
-        bboxes *= rnd_scale
-
-    img = cv2.resize(img, dsize=None, fx=rnd_scale, fy=rnd_scale)
-
-    return img
+def random_horizontal_flip(imgs):
+    if random.random() < 0.5:
+        for i in range(len(imgs)):
+            imgs[i] = np.flip(imgs[i], axis=1).copy()
+    return imgs
 
 def padding_image(image,imgsize):
     length = max(image.shape[0:2])
@@ -126,8 +124,6 @@ def random_crop_v0(imgs, img_size, character_bboxes):
             imgs[idx] = padding_image(imgs[idx], tw)
 
     return imgs
-
-
 
 
 def random_crop_with_bbox_adapt_to_output_size(augment_targets, word_level_char_bbox, output_size):
@@ -204,25 +200,6 @@ def random_crop_v2(imgs, img_size):
         if crop_w > tw or crop_h > th:
             imgs[idx] = padding_image(imgs[idx], tw)
 
-    return imgs
-
-
-def random_horizontal_flip(imgs):
-    if random.random() < 0.5:
-        for i in range(len(imgs)):
-            imgs[i] = np.flip(imgs[i], axis=1).copy()
-    return imgs
-
-
-def random_rotate(imgs):
-    max_angle = 10
-    angle = random.random() * 2 * max_angle - max_angle
-    for i in range(len(imgs)):
-        img = imgs[i]
-        w, h = img.shape[:2]
-        rotation_matrix = cv2.getRotationMatrix2D((h / 2, w / 2), angle, 1)
-        img_rotation = cv2.warpAffine(img, rotation_matrix, (h, w))
-        imgs[i] = img_rotation
     return imgs
 
 
