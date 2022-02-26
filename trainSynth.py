@@ -24,7 +24,6 @@ from model.craft import CRAFT
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils.util import copyStateDict, save_parser
 
-
 class Trainer(object):
     def __init__(self, config):
 
@@ -39,19 +38,23 @@ class Trainer(object):
             output_size=self.config.train.data.output_size,
             data_dir=self.config.data_dir.synthtext,
             saved_gt_dir=self.config.data_dir.synthtext_gt,
+            gauss_init_size=self.config.train.data.gauss_init_size,
+            gauss_sigma=self.config.train.data.gauss_sigma,
+            enlarge_size=self.config.train.data.enlarge_size,
+            aug=self.config.train.data.aug,
             logging=self.config.train.data.logging,
         )
 
-        # synth_sampler = torch.utils.data.distributed.DistributedSampler(synthDataLoader)
+        synth_sampler = torch.utils.data.distributed.DistributedSampler(synth_dataset)
         synth_loader = torch.utils.data.DataLoader(
             synth_dataset,
             batch_size=self.config.train.batch_size,
             shuffle=False,
             num_workers=self.config.train.num_workers,
+            sampler=synth_sampler,
             drop_last=False,
             pin_memory=True,
         )
-        # sampler=synth_sampler,
 
         return synth_loader
 
@@ -83,25 +86,19 @@ class Trainer(object):
             criterion = Maploss_v3()
         return criterion
 
-    def train(self, gpu=0):
-        print("start training")
-
+    def train(self, gpu):
         trn_loader = self.synth_loader
         # -------------------------------------------------------------------------------------------------------#
         craft = CRAFT(pretrained=True, amp=self.config.train.amp)
-
-        # craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
-        # torch.cuda.set_device(gpu)
-        # craft = craft.cuda(gpu)
-        # craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[gpu])
+        craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
+        torch.cuda.set_device(gpu)
+        craft = craft.cuda(gpu)
+        craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[gpu])
 
         # load model
         if self.config.train.ckpt_path is not None:
             craft.load_state_dict(copyStateDict(self.net_param["craft"]))
-            print("success craft_load.")
 
-        craft = torch.nn.DataParallel(craft).cuda()
-        wandb.watch(craft)
         torch.backends.cudnn.benchmark = True
         # ----------------------------------------------------------------------------------------------------------#
 
@@ -116,7 +113,7 @@ class Trainer(object):
             optimizer.load_state_dict(copyStateDict(self.net_param["optimizer"]))
             self.config.train.st_iter = self.net_param["optimizer"]["state"][0]["step"]
             self.config.train.lr = self.net_param["optimizer"]["param_groups"][0]["lr"]
-            print("success optim_load")
+
 
         # ---------------------------------------------------------------------------------------------------------#
 
@@ -148,11 +145,10 @@ class Trainer(object):
                 affinity_image,
                 confidence_mask,
             ) in enumerate(trn_loader):
-
                 craft.train()
                 if train_step > 0 and train_step % self.config.train.lr_decay == 0:
                     update_lr_rate_step += 1
-                    training_lr = self.adjust_learning_rate(
+                    training_lr = self._adjust_learning_rate(
                         optimizer,
                         self.config.train.gamma,
                         update_lr_rate_step,
@@ -177,6 +173,7 @@ class Trainer(object):
                             out2,
                             confidence_mask_label,
                             self.config.train.neg_rto,
+                            self.config.train.n_min_neg
                         )
 
                     optimizer.zero_grad()
@@ -204,9 +201,19 @@ class Trainer(object):
                 end_time = time.time()
                 loss_value += loss.item()
                 batch_time += end_time - start_time
-                wandb.log({"SynthText Loss": loss.item()})
 
-                if train_step % 5000 == 0 and train_step != 0:
+                if train_step > 0 and train_step%5==0 and gpu == 0:
+                    mean_loss = loss_value / 5
+                    loss_value = 0
+                    avg_batch_time = batch_time/5
+                    batch_time = 0
+
+                    print("{}, training_step: {}|{}, learning rate: {:.8f}, training_loss: {:.5f}, avg_batch_time: {:.5f}"
+                          .format(time.strftime('%Y-%m-%d:%H:%M:%S',time.localtime(time.time())), train_step,
+                                  whole_training_step, training_lr, mean_loss, avg_batch_time))
+                    wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
+
+                if train_step % 500 == 0 and train_step != 0 and gpu == 0:
 
                     print("Saving state, index:", train_step)
                     save_param_dic = {
@@ -254,71 +261,104 @@ class Trainer(object):
                     break
 
         # save last model
-        save_param_dic = {
-            "iter": train_step,
-            "craft": craft.state_dict(),
-            "optimizer": optimizer.state_dict(),
-        }
-        save_param_path = (
-            self.config.results_dir + "/CRAFT_clr_" + repr(train_step) + ".pth"
-        )
-
-        if self.config.train.amp:
-            save_param_dic["scaler"] = scaler.state_dict()
-            save_param_path = (
-                self.config.results_dir + "/CRAFT_clr_amp_" + repr(train_step) + ".pth"
-            )
-        torch.save(save_param_dic, save_param_path)
-
-        evaluator = DetectionIoUEvaluator()
-        val_result_dir = os.path.join(
-            self.config.results_dir, "{}".format(str(train_step))
-        )
-        metrics = main_eval(save_param_path, self.config, evaluator, val_result_dir)
-
-        wandb.log(
-            {
-                "ICDAR2013 Recall": np.round(metrics["recall"], 3),
-                "ICDAR2013 Precision": np.round(metrics["precision"], 3),
-                "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
+        if gpu == 0:
+            save_param_dic = {
+                "iter": train_step,
+                "craft": craft.state_dict(),
+                "optimizer": optimizer.state_dict(),
             }
-        )
+            save_param_path = (
+                self.config.results_dir + "/CRAFT_clr_" + repr(train_step) + ".pth"
+            )
+
+            if self.config.train.amp:
+                save_param_dic["scaler"] = scaler.state_dict()
+                save_param_path = (
+                    self.config.results_dir + "/CRAFT_clr_amp_" + repr(train_step) + ".pth"
+                )
+            torch.save(save_param_dic, save_param_path)
+
+            evaluator = DetectionIoUEvaluator()
+            val_result_dir = os.path.join(
+                self.config.results_dir, "{}".format(str(train_step))
+            )
+            metrics = main_eval(save_param_path, self.config, evaluator, val_result_dir)
+
+            wandb.log(
+                {
+                    "ICDAR2013 Recall": np.round(metrics["recall"], 3),
+                    "ICDAR2013 Precision": np.round(metrics["precision"], 3),
+                    "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
+                }
+            )
+            wandb.finish()
 
 
-def main_worker():
+def main():
+
+    # Start train
+    ngpus_per_node = torch.cuda.device_count()
+    world_size = ngpus_per_node
+
+    torch.multiprocessing.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node,))
+
+
+def main_worker(gpu, ngpus_per_node):
 
     parser = argparse.ArgumentParser(description="CRAFT SynthText Train")
-    parser.add_argument(
-        "--yaml",
-        "--yaml_file_name",
-        default="./exp/synthtext/",
-        type=str,
-        help="Load configuration",
-    )
+    parser.add_argument("--yaml",
+                        "--yaml_file_name",
+                        default="./exp/synthtext/",
+                        type=str,
+                        help="Load configuration")
+
+    parser.add_argument("--port",
+                        "--use ddp port",
+                        default="2346",
+                        type=str,
+                        help="Load configuration")
+
     args = parser.parse_args()
+
+
+    torch.distributed.init_process_group(
+        backend='nccl',
+        init_method='tcp://127.0.0.1:' + args.port,
+        world_size=ngpus_per_node,
+        rank=gpu)
+
+
 
     # load configure
     config = load_yaml(args.yaml)
+
+    if gpu == 0:
+        # Apply config to wandb
+        # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
+        wandb.init(project="ocr_craft", name=args.yaml)
+        wandb.config.update(config)
+        print(yaml.dump(config))
+        # Make result_dir
+        res_dir = os.path.join("exp", args.yaml)
+        config["results_dir"] = res_dir
+        if not os.path.exists(res_dir):
+            os.makedirs(res_dir)
+
+        # Duplicate yaml file to result_dir
+        shutil.copy(
+            "config/" + args.yaml + ".yaml", os.path.join(res_dir, args.yaml) + ".yaml"
+        )
+
+
+
+    batch_size = int(config["train"]["batch_size"] / ngpus_per_node)
+    config["train"]["batch_size"] = batch_size
     config = DotDict(config)
 
-    # Make result_dir
-    res_dir = os.path.join("exp", args.yaml)
-    config.results_dir = res_dir
-    if not os.path.exists(res_dir):
-        os.makedirs(res_dir)
-
-    # Duplicate yaml file to result_dir
-    shutil.copy(
-        "config/" + args.yaml + ".yaml", os.path.join(res_dir, args.yaml) + ".yaml"
-    )
-
-    # Apply config to wandb
-    wandb.init(project="jm-test", entity="pingu", name=args.yaml)
-    wandb.config.update(config)
-
+    # Start train
     trainer = Trainer(config)
-    trainer.train()
+    trainer.train(gpu)
 
 
 if __name__ == "__main__":
-    main_worker()
+    main()

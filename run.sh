@@ -1,5 +1,6 @@
-cd /nas/home/gmuffiness/workspace/ocr_related/daintlab-CRAFT-Reimplementation/clean-code/unittest
-python3 dataloader_test.py
-echo $PYTHONPATH
-export PYTHONPATH=$PYTHONPATH:$/nas/home/gmuffiness/workspace/ocr_related/daintlab-CRAFT-Reimplementation/clean-code/config
-vim ~/.bashrc
+# Guide : Set PYTHONPATH
+# 1. vim ~/.bashrc
+# Add below line to 'bashrc' file
+# 2. export PYTHONPATH=$PYTHONPATH:${YOUR_PROJECT_ROOT_PATH}
+#CUDA_VISIBLE_DEVICES=0,1,3,4,5,6 python3 trainSynth.py --yaml=shwang_synthtext_test6_26
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 python3 trainSynth.py --yaml=default

@@ -32,9 +32,9 @@ train:
         option: False
       random_rotate:
         max_angle: 20
-        option: True
+        option: False
       random_crop:
-        version: "random_resize_crop" # Function name
+        version: "random_resize_crop"
         scale: [0.333, 1.0]
         ratio: [0.75, 1.333]
         option: True
