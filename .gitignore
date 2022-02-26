@@ -1,5 +1,4 @@
 __pycache__/
 model/__pycache__/
-unittest/*
-wandb/*
 exp/*
+wandb/*
