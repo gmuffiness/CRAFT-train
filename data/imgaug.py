@@ -27,7 +27,7 @@ def random_scale(img, bboxes, min_size):
         bboxes *= scale
 
     h, w = img.shape[0:2]
-    random_scale = [0.5, 1.0, 1.5]
+    random_scale = [1.0, 1.5, 2.0]
     # scale = np.random.choice(random_scale)
     scale = random.sample(random_scale, 1)[0]
 
@@ -180,7 +180,39 @@ def random_crop_with_bbox_adapt_to_output_size(augment_targets, word_level_char_
         if crop_w > tw or crop_h > th:
             augment_targets[idx] = padding_image(augment_targets[idx], tw)
 
+
     return augment_targets
+
+
+
+def random_resize_crop(image, region_scores, affinities_scores, confidence_mask, size):
+    # --------------------------------------------------------------------------------------------------------------#
+    from PIL import Image
+    from torchvision.transforms.functional import resized_crop
+    from torchvision.transforms import RandomResizedCrop
+
+    image = Image.fromarray(image)
+    region_scores = Image.fromarray(region_scores)
+    affinities_scores = Image.fromarray(affinities_scores)
+    confidence_mask = Image.fromarray(confidence_mask)
+
+    i, j, h, w = RandomResizedCrop.get_params(image, scale=(0.333, 1.0), ratio=(0.75, 1.333))
+
+    image = resized_crop(image, i, j, h, w, size=(size, size))
+    region_scores = resized_crop(region_scores, i, j, h, w, (size, size))
+    affinities_scores = resized_crop(affinities_scores, i, j, h, w, (size, size))
+    confidence_mask = resized_crop(confidence_mask, i, j, h, w, (size, size))
+
+    image = np.array(image)
+    region_scores = np.array(region_scores)
+    affinities_scores = np.array(affinities_scores)
+    confidence_mask = np.array(confidence_mask)
+    random_transforms = [image, region_scores, affinities_scores, confidence_mask]
+    # --------------------------------------------------------------------------------------------------------------#
+
+    return random_transforms
+
+
 
 
 def random_crop_v2(imgs, img_size):
@@ -215,7 +247,7 @@ def random_horizontal_flip(imgs):
 
 
 def random_rotate(imgs):
-    max_angle = 10
+    max_angle = 20
     angle = random.random() * 2 * max_angle - max_angle
     for i in range(len(imgs)):
         img = imgs[i]

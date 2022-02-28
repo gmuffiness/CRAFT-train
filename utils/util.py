@@ -55,7 +55,7 @@ def saveInput(imagename, image, region_scores, affinity_scores, confidence_mask)
 
     output = np.hstack([image, output])
 
-    outpath = os.path.join(os.path.join(config.RESULT_DIR, '{}/input'.format(str(config.ITER // 100))),
+    outpath = os.path.join(os.path.join('exp/synth_shwang', '{}/input'.format(str(config.ITER // 100))),
                            "%s_input.jpg" % imagename)
     #print(outpath)
     if not os.path.exists(os.path.dirname(outpath)):

@@ -1,6 +1,7 @@
 import os
 import re
 import itertools
+import copy
 
 import numpy as np
 import scipy.io as scio
@@ -11,7 +12,8 @@ import torchvision.transforms as transforms
 
 from data import imgproc
 from data.gaussian import GaussianBuilder
-from data.imgaug import random_crop_with_bbox_adapt_to_output_size
+from data.imgaug import random_crop_with_bbox_adapt_to_output_size, \
+    random_horizontal_flip, random_rotate, random_scale, random_resize_crop
 from utils.util import saveInput, saveImage
 
 
@@ -82,12 +84,13 @@ class SynthTextDataSet(Dataset):
         )
 
     def make_pseudo_gt(self, index):
+
         img_path = os.path.join(self.data_dir, self.img_names[index][0])
         image = cv2.imread(img_path, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         all_char_bbox = self.char_bbox[index].transpose((2, 1, 0))
-
         image, all_char_bbox = self.dilate_img_to_output_size(image, all_char_bbox)
+
         img_h, img_w, _ = image.shape
 
         confidence_mask = np.ones((img_h, img_w), dtype=np.uint8)
@@ -109,6 +112,7 @@ class SynthTextDataSet(Dataset):
         region_score = self.gaussian_builder.generate_region(img_h, img_w, word_level_char_bbox)
         affinity_score, _ = self.gaussian_builder.generate_affinity(img_h, img_w, word_level_char_bbox)
 
+
         # TODO: output validation check
 
         return (
@@ -119,6 +123,7 @@ class SynthTextDataSet(Dataset):
             word_level_char_bbox,
             words,
         )
+
 
     def dilate_img_to_output_size(self, image, char_bbox):
         h, w = image.shape[0:2]
@@ -136,12 +141,17 @@ class SynthTextDataSet(Dataset):
 
         # TODO
         # 1. rotate
-
+        augment_targets = random_rotate(augment_targets)
         # 2. scale
 
         # 3. crop
-        augment_targets = random_crop_with_bbox_adapt_to_output_size(
-            augment_targets, word_level_char_bbox, self.output_size
+        # augment_targets = random_crop_with_bbox_adapt_to_output_size(
+        #     augment_targets, word_level_char_bbox, self.output_size
+        # )
+
+
+        augment_targets = random_resize_crop(
+            augment_targets[0],augment_targets[1],augment_targets[2],augment_targets[3],self.output_size
         )
 
         # 4. horizontal flip
@@ -149,10 +159,13 @@ class SynthTextDataSet(Dataset):
         # 5. colorjitter
         image, region_image, affinity_image, confidence_mask = augment_targets
 
-        image = Image.fromarray(image)
-        image = transforms.ColorJitter(brightness=32.0 / 255, saturation=0.5)(image)
-
-        return image, region_score, affinity_score, confidence_mask
+        image = Image.fromarray(image).convert('RGB')
+        image = transforms.ColorJitter(brightness=0.2,
+                                       contrast=0.2,
+                                       saturation=0.2,
+                                       hue=0.2)(image)
+        #image = transforms.ColorJitter(brightness=32.0 / 255, saturation=0.5)(image)
+        return image, region_image, affinity_image, confidence_mask
 
     def resize_to_half(self, ground_truth):
         return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2))
@@ -186,15 +199,18 @@ class SynthTextDataSet(Dataset):
             image, region_score, affinity_score, confidence_mask = \
                 self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
 
-        if self.logging:
-            saveInput(
-                self.img_names[index][0],
-                image,
-                region_score,
-                affinity_score,
-                confidence_mask,
-            )
-            self.logging = False
+        # if self.logging:
+        #     saveInput(
+        #         self.img_names[index][0],
+        #         image,
+        #         region_score,
+        #         affinity_score,
+        #         confidence_mask,
+        #     )
+            #self.logging = False
+
+
+
 
         region_score = self.resize_to_half(region_score)
         affinity_score = self.resize_to_half(affinity_score)
@@ -208,6 +224,7 @@ class SynthTextDataSet(Dataset):
         # TODO : region score, affinity score type check
         region_score = region_score.astype(np.float32) / 255
         affinity_score = affinity_score.astype(np.float32) / 255
-        confidence_mask = confidence_mask.astype(np.float32) / 255
+        confidence_mask = confidence_mask.astype(np.float32)
+
 
         return image, region_score, affinity_score, confidence_mask

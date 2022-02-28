@@ -9,10 +9,11 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 import torch
-from torch.autograd import Variable
-import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
+import torch.backends.cudnn as cudnn
+from torch.autograd import Variable
+from torchvision.transforms.functional import to_pil_image
 import wandb
 import yaml
 
@@ -153,7 +154,7 @@ class Trainer(object):
                 craft.train()
                 if train_step > 0 and train_step % self.config.train.lr_decay == 0:
                     update_lr_rate_step += 1
-                    training_lr = self.adjust_learning_rate(
+                    training_lr = self._adjust_learning_rate(
                         optimizer,
                         self.config.train.gamma,
                         update_lr_rate_step,
@@ -171,6 +172,7 @@ class Trainer(object):
                         output, _ = craft(images)
                         out1 = output[:, :, :, 0]
                         out2 = output[:, :, :, 1]
+
                         loss = criterion(
                             region_image_label,
                             affinity_image_label,
@@ -206,10 +208,10 @@ class Trainer(object):
                 loss_value += loss.item()
                 batch_time += end_time - start_time
 
-                # if gpu == 0:
-                #     wandb.log({"SynthText Loss": loss.item()})
+                if gpu == 0:
+                    wandb.log({"SynthText Loss": loss.item()})
 
-                if train_step % 50 == 0 and train_step != 0 and gpu == 0:
+                if train_step % 500 == 0 and train_step != 0 and gpu == 0:
 
                     print("Saving state, index:", train_step)
                     save_param_dic = {
@@ -244,13 +246,13 @@ class Trainer(object):
                         save_param_path, self.config, evaluator, val_result_dir
                     )
 
-                    # wandb.log(
-                    #     {
-                    #         "ICDAR2013 Recall": np.round(metrics["recall"], 3),
-                    #         "ICDAR2013 Precision": np.round(metrics["precision"], 3),
-                    #         "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
-                    #     }
-                    # )
+                    wandb.log(
+                        {
+                            "ICDAR2013 Recall": np.round(metrics["recall"], 3),
+                            "ICDAR2013 Precision": np.round(metrics["precision"], 3),
+                            "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
+                        }
+                    )
 
                 train_step += 1
                 if train_step >= whole_training_step:
@@ -280,13 +282,13 @@ class Trainer(object):
             )
             metrics = main_eval(save_param_path, self.config, evaluator, val_result_dir)
 
-            # wandb.log(
-            #     {
-            #         "ICDAR2013 Recall": np.round(metrics["recall"], 3),
-            #         "ICDAR2013 Precision": np.round(metrics["precision"], 3),
-            #         "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
-            #     }
-            # )
+            wandb.log(
+                {
+                    "ICDAR2013 Recall": np.round(metrics["recall"], 3),
+                    "ICDAR2013 Precision": np.round(metrics["precision"], 3),
+                    "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
+                }
+            )
             wandb.finish()
 
 
