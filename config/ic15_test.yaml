@@ -1,6 +1,6 @@
 
 results_dir: "./exp/"
-vis_test_dir: "/nas/home/gmuffiness/result/debug"
+vis_dir: "/nas/home/gmuffiness/result/debug"
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: ""
@@ -47,7 +47,7 @@ train:
         saturation: 0.2
         hue: 0.2
         option: True
-    logging: False
+    vis_opt: True
 
 test:
   test_folder: "/data/ICDAR2013/"

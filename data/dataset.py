@@ -12,11 +12,11 @@ import torchvision.transforms as transforms
 from data import imgproc
 from data.gaussian import GaussianBuilder
 from data.imgaug import random_scale, random_rotate, random_crop_with_bbox_adapt_to_output_size, random_resize_crop, random_horizontal_flip
-# from utils.util import saveInput, saveImage
+from data.pointClockOrder import mep
 
 
 class SynthTextDataSet(Dataset):
-    def __init__(self, output_size, data_dir, saved_gt_dir, gauss_init_size, gauss_sigma, enlarge_size, aug, logging):
+    def __init__(self, output_size, data_dir, saved_gt_dir, gauss_init_size, gauss_sigma, enlarge_size, aug, vis_opt):
 
         self.output_size = output_size
         self.data_dir = data_dir
@@ -24,7 +24,7 @@ class SynthTextDataSet(Dataset):
         self.img_names, self.char_bbox, self.img_words = self.load_data()
         self.gaussian_builder = GaussianBuilder(gauss_init_size, gauss_sigma, enlarge_size)
         self.aug = aug
-        self.logging = logging
+        self.vis_opt = vis_opt
 
     # NOTE
     def load_data(self, bbox="char"):
@@ -193,22 +193,599 @@ class SynthTextDataSet(Dataset):
                 words,
             ) = self.load_saved_gt(index)
 
-        # if self.logging:
-        #     saveImage(self.img_names[index][0], image.copy(), word_level_char_bbox.copy(),
-        #               region_score.copy(), affinity_score.copy(), confidence_mask.copy())
-
         image, region_score, affinity_score, confidence_mask = \
             self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
 
-        # if self.logging:
-        #     saveInput(
-        #         self.img_names[index][0],
-        #         image,
-        #         region_score,
-        #         affinity_score,
-        #         confidence_mask,
-        #     )
-            # self.logging = False
+        region_score = self.resize_to_half(region_score)
+        affinity_score = self.resize_to_half(affinity_score)
+        confidence_mask = self.resize_to_half(confidence_mask)
+
+        image = imgproc.normalizeMeanVariance(
+            np.array(image), mean=(0.485, 0.456, 0.406), variance=(0.229, 0.224, 0.225)
+        )
+        image = image.transpose(2, 0, 1)
+
+        # TODO : region score, affinity score type check
+        region_score = region_score.astype(np.float32) / 255
+        affinity_score = affinity_score.astype(np.float32) / 255
+        confidence_mask = confidence_mask.astype(np.float32)
+
+        return image, region_score, affinity_score, confidence_mask
+
+
+
+class ICDAR2015(Dataset):
+    def __init__(self, output_size, data_dir, saved_gt_dir, gauss_init_size, gauss_sigma, enlarge_size, aug, vis_opt):
+
+        # self.net = net
+        # self.net.eval()
+        # self.net = 0
+
+        self.output_size = output_size
+        self.data_dir = data_dir
+        self.saved_gt_dir = saved_gt_dir
+        self.gaussian_builder = GaussianBuilder(gauss_init_size, gauss_sigma, enlarge_size)
+        self.aug = aug
+        self.vis_opt = vis_opt
+        self.vis_index = [189, 41, 723, 251, 232, 115, 634, 951, 247, 25, 400, 704, 619, 305, 423, 20, 31]
+
+        self.img_dir = os.path.join(data_dir, 'ch4_training_images')
+        self.img_gt_box_dir = os.path.join(data_dir, 'ch4_training_localization_transcription_gt')
+        self.image_names = os.listdir(self.img_dir)
+
+    def get_img_name(self, index):
+        return self.image_names[index]
+
+    def load_img_gt_box(self, img_gt_box_path):
+        lines = open(img_gt_box_path, encoding='utf-8').readlines()
+        word_bboxes = []
+        words = []
+        for line in lines:
+            box_info = line.strip().encode('utf-8').decode('utf-8-sig').split(',')
+            # int type
+            box_points = [int(box_info[i]) for i in range(8)]
+            word = box_info[8:]
+            word = ','.join(word)
+            # np.int32 type
+            box_points = np.array(box_points, np.int32).reshape(4, 2)
+            if word == '###':
+                words.append('###')
+                word_bboxes.append(box_points)
+                continue
+
+            # TODO: 좌표 보정 과정으로 보이는데, 어떤 점이 달라지는 지 확인
+            area, p0, p3, p2, p1, _, _ = mep(box_points)
+
+            bbox = np.array([p0, p1, p2, p3])
+
+            distance = 10000000
+            index = 0
+            for i in range(4):
+                d = np.linalg.norm(box_points[0] - bbox[i])
+                if distance > d:
+                    index = i
+                    distance = d
+            new_box = []
+            for i in range(index, index + 4):
+                new_box.append(bbox[i % 4])
+            new_box = np.array(new_box)
+            word_bboxes.append(np.array(new_box))
+            words.append(word)
+        return word_bboxes, words
+
+    def crop_image_by_bbox(self, image, box):
+
+
+        w = (int)(np.linalg.norm(box[0] - box[1]))
+        h = (int)(np.linalg.norm(box[0] - box[3]))
+        width = w
+        height = h
+        if h > w * 1.5:
+            width = h
+            height = w
+            M = cv2.getPerspectiveTransform(np.float32(box),
+                                            np.float32(np.array([[width, 0], [width, height], [0, height], [0, 0]])))
+        else:
+            M = cv2.getPerspectiveTransform(np.float32(box),
+                                            np.float32(np.array([[0, 0], [width, 0], [width, height], [0, height]])))
+
+        warped = cv2.warpPerspective(image, M, (width, height))
+        return warped, M
+
+
+    def get_confidence(self, real_len, pursedo_len):
+        if pursedo_len == 0:
+            return 0.
+        return (real_len - min(real_len, abs(real_len - pursedo_len))) / real_len
+
+
+    def inference_pursedo_bboxes(self, net, image, word_bbox, word, vis_opt=False, img_name=''):
+
+       # print('inference_pursedo_bboxes model last parameters
+       # :{}'.format(net.module.conv_cls[-1].weight.reshape(2, -1)))
+        if net.training:
+            net.eval()
+        with torch.no_grad():
+            word_image, MM = self.crop_image_by_bbox(image, word_bbox)
+
+            real_word_without_space = word.replace('\s', '')
+            real_char_nums = len(real_word_without_space)
+            input = word_image.copy()
+            # 왜 64로 scale 조절을 하는 걸까?? --> https://github.com/clovaai/CRAFT-pytorch/issues/18
+            scale = 64.0 / input.shape[0]
+            #input = cv2.resize(input, None, fx=scale, fy=scale)
+            input = cv2.resize(input, None, fx=scale, fy=scale)
+            input_copy = input.copy()
+
+
+            img_torch = torch.from_numpy(imgproc.normalizeMeanVariance(input, mean=(0.485, 0.456, 0.406),
+                                                                       variance=(0.229, 0.224, 0.225)))
+            img_torch = img_torch.permute(2, 0, 1).unsqueeze(0)
+            img_torch = img_torch.type(torch.FloatTensor).cuda()
+            scores, _ = net(img_torch)
+            region_score = scores[0, :, :, 0].cpu().data.numpy()
+            region_score = np.uint8(np.clip(region_score, 0, 1) * 255)
+            bgr_region_scores = cv2.resize(region_score, (input.shape[1], input.shape[0]))
+            bgr_region_scores = cv2.cvtColor(bgr_region_scores, cv2.COLOR_GRAY2RGB)
+
+            pursedo_bboxes, color_markers = watershed_v4(bgr_region_scores.copy(), input.copy(), vis_opt=False)
+
+            if len(pursedo_bboxes) > 0:
+
+                pursedo_bboxes[:, :, 0] = np.clip(pursedo_bboxes[:, :, 0], 0, bgr_region_scores.shape[1])
+                pursedo_bboxes[:, :, 1] = np.clip(pursedo_bboxes[:, :, 1], 0, bgr_region_scores.shape[0])
+
+
+
+            _tmp = []
+            # except for the small box
+            for i in range(pursedo_bboxes.shape[0]):
+                if np.mean(pursedo_bboxes[i].ravel()) > 2: # ravel -> 1차원 변환
+                    _tmp.append(pursedo_bboxes[i])
+                else:
+                    print("filter bboxes", pursedo_bboxes[i]) # 작은 box들
+
+                # check small box 2
+                # import ipdb;ipdb.set_trace()
+                #
+                # poly = plg.Polygon(pursedo_bboxes[i])
+                # area = poly.area()
+                # if area < 10:
+                #     continue
+                # _tmp.append(pursedo_bboxes[i])
+                #
+                #
+                #
+                #
+                #
+                # pursedo_bboxes_ = pursedo_bboxes[i].copy()
+                # top_left = np.array([np.min(pursedo_bboxes[i][:, 0]), np.min(pursedo_bboxes[i][:, 1])]).astype(np.int32)
+                # pursedo_bboxes_ -= top_left[None, :]
+                #
+                # width, height = np.max(pursedo_bboxes_[:, 0]).astype(np.int32), np.max(
+                #     pursedo_bboxes_[:, 1]).astype(np.int32)
+                #
+                # if width >0 or height >0:
+                #     _tmp.append(pursedo_bboxes[i])
+                # else:
+                #     import ipdb;ipdb.set_trace()
+                #     print("filter bboxes", pursedo_bboxes[i])  # 작은 box들
+
+
+
+            pursedo_bboxes = np.array(_tmp, np.float32)
+            if pursedo_bboxes.shape[0] > 1:
+                index = np.argsort(pursedo_bboxes[:, 0, 0])
+                pursedo_bboxes = pursedo_bboxes[index]
+
+
+            confidence = self.get_confidence(real_char_nums, len(pursedo_bboxes))
+
+            bboxes = []
+            if confidence <= 0.5:  # confidence 값들이 낮은 경우 등분하고, 이떄 confidence 0.5
+                width = input.shape[1]
+                height = input.shape[0]
+
+                width_per_char = width / len(word)
+                for j, char in enumerate(word):
+                    if char == ' ':
+                        continue
+                    left = j * width_per_char
+                    right = (j + 1) * width_per_char
+                    bbox = np.array([[left, 0], [right, 0], [right, height],
+                                     [left, height]])
+                    bboxes.append(bbox)
+
+                bboxes = np.array(bboxes, np.float32)
+                confidence = 0.5
+
+            else:
+                bboxes = pursedo_bboxes
+
+
+            if vis_opt == True:
+
+               # -----------------------------------------------------------------------------------------------#
+
+                input_copy1 = input_copy.copy()
+                _purs_bboxes = np.int32(pursedo_bboxes.copy())
+                if len(_purs_bboxes) > 0:
+                    _purs_bboxes[:, :, 0] = np.clip(_purs_bboxes[:, :, 0], 0, input.shape[1])
+                    _purs_bboxes[:, :, 1] = np.clip(_purs_bboxes[:, :, 1], 0, input.shape[0])
+                    for bbox_p in _purs_bboxes:
+                        cv2.polylines(np.uint8(input_copy1), [np.reshape(bbox_p, (-1, 1, 2))], True, (255, 0, 0))
+
+                input_copy2 = input_copy.copy()
+                _tmp_bboxes = np.int32(bboxes.copy())
+                _tmp_bboxes[:, :, 0] = np.clip(_tmp_bboxes[:, :, 0], 0, input.shape[1])
+                _tmp_bboxes[:, :, 1] = np.clip(_tmp_bboxes[:, :, 1], 0, input.shape[0])
+                for bbox in _tmp_bboxes:
+                    cv2.polylines(np.uint8(input_copy2), [np.reshape(bbox, (-1, 1, 2))], True, (255, 0, 0))
+
+                region_scores_color = cv2.applyColorMap(np.uint8(region_score), cv2.COLORMAP_JET)
+                region_scores_color = cv2.resize(region_scores_color, (input.shape[1], input.shape[0]))
+
+                # viz_image2 = np.hstack([input_copy[:, :, ::-1], region_scores_color, color_markers,
+                #                        input_copy1[:, :, ::-1], input_copy2[:, :, ::-1]])
+                # cv2.imwrite('/nas/home/gmuffiness/result/temp_hstack.jpg', viz_image2)
+
+                #gaussian
+                target = self.gen.generate_region(region_scores_color.shape, [_tmp_bboxes])
+                target_color = cv2.applyColorMap(target.astype('uint8'), cv2.COLORMAP_JET)
+
+                overlay_img = cv2.addWeighted(input_copy[:, :, ::-1], 0.7, target_color, 0.3, 5)
+                # ori img , region score, watershed, box img
+                viz_image = np.hstack([input_copy[:, :, ::-1], region_scores_color,color_markers,
+                                       input_copy1[:, :, ::-1],input_copy2[:, :, ::-1], target_color, overlay_img])
+
+
+                save_path = os.path.join(config.RESULT_DIR, str(config.ITER//100))
+                if not os.path.exists(os.path.dirname(save_path)):
+                    os.makedirs(os.path.dirname(save_path))
+                cv2.imwrite(os.path.join(save_path, '{}_{}'.format(img_name, 'hstack.jpg')), viz_image)
+                # if config.ITER == 0:
+                # cv2.imwrite(os.path.join(os.path.join(save_path, 'ori_img_v3'), '{}_{}'.format(img_name, 'img.jpg')), input_copy[:, :, ::-1])
+                # cv2.imwrite(os.path.join(os.path.join(save_path, 'region_score_v3'), '{}_{}'.format(img_name, 'region_score.jpg')), bgr_region_scores)
+
+                vis_opt=False
+
+                # -----------------------------------------------------------------------------------------------#
+
+            bboxes /= scale
+
+            try: # problem
+                for k in range(len(bboxes)):
+                    ones = np.ones((4, 1))
+                    tmp = np.concatenate([bboxes[k], ones], axis=-1)
+                    I = np.matrix(MM).I
+                    ori = np.matmul(I, tmp.transpose(1, 0)).transpose(1, 0)
+                    bboxes[k] = ori[:, :2]
+
+            except Exception as e:
+                print(e)
+
+
+
+            bb1 = bboxes.copy()
+
+
+            if len(bboxes) > 0:
+                bboxes[:, :, 1] = np.clip(bboxes[:, :, 1], 0, image.shape[0])
+                bboxes[:, :, 0] = np.clip(bboxes[:, :, 0], 0, image.shape[1])
+
+
+            # for cb in bboxes:
+            #     # if (cb < 0).astype('float32').sum() > 0:
+            #     #     import ipdb;
+            #
+            #     #check 1
+            #     poly = plg.Polygon(cb)
+            #     area = poly.area()
+            #     if area < 10:
+            #         import ipdb;ipdb.set_trace()
+            #
+            #     # check 2
+            #     pursedo_bboxes_ = cb.copy()
+            #     top_left = np.array([np.min(pursedo_bboxes[:, 0]), np.min(pursedo_bboxes[:, 1])]).astype(np.int32)
+            #     pursedo_bboxes_ -= top_left[None, :]
+            #
+            #     width, height = np.max(pursedo_bboxes_[:, 0]).astype(np.int32), np.max(
+            #         pursedo_bboxes_[:, 1]).astype(np.int32)
+            #
+            #     if width >0 or height >0:
+            #         pass
+            #     else:
+            #         import ipdb;ipdb.set_trace()
+            #         print("filter bboxes", pursedo_bboxes[i])  # 작은 box들
+
+
+
+        if not net.training:
+            net.train()
+
+        return bboxes, region_score, confidence
+
+    def get_confidence_by_contour(self, image, region_score, word_bbox, word, new_imagename, vis=False):
+
+        word_image, _ = self.crop_image_by_bbox(image, word_bbox)
+        word_region_score, MM = self.crop_image_by_bbox(region_score, word_bbox)
+
+        real_word_without_space = word.replace('\s', '')
+        real_char_nums = len(real_word_without_space)
+        input = word_region_score.copy()
+        # 왜 64로 scale 조절을 하는 걸까?? --> https://github.com/clovaai/CRAFT-pytorch/issues/18
+        scale = 64.0 / input.shape[0]
+        input = cv2.resize(input, None, fx=scale, fy=scale)
+
+        ret, binary = cv2.threshold(input, 0.6 * 255, 255, cv2.THRESH_BINARY)
+        binary = binary.astype(np.uint8)
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+
+        confidence = self.get_confidence(real_char_nums, len(contours))
+
+        if confidence <= 0.5:  # confidence 값들이 낮은 경우, confidence 0.5
+            confidence = 0.5
+
+        if vis:
+            word_image = cv2.resize(word_image, None, fx=scale, fy=scale)
+            word_region_score = cv2.resize(word_region_score, None, fx=scale, fy=scale)
+            word_region_score = cv2.applyColorMap(np.uint8(word_region_score), cv2.COLORMAP_JET)
+
+            word_region_score = word_region_score.copy()
+            binary = binary.copy()
+            word_region_score = cv2.cvtColor(word_region_score, cv2.COLOR_BGR2RGB)
+            binary = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
+            # import ipdb; ipdb.set_trace()
+            vis_result = np.hstack([word_image, word_region_score, binary])
+            cv2.imwrite(f'/nas/home/gmuffiness/workspace/ocr_related/daintlab-CRAFT-Reimplementation/craft_jm/results_dir/exp_official_craft_supervision_v1.2/contour_sample/{new_imagename}_{confidence}.jpg', vis_result)
+        return confidence
+
+
+    def load_image_gt_and_confidence_mask(self, index):
+        '''
+        根据索引加载ground truth
+        :param index:索引
+        :return:bboxes 字符的框，
+        '''
+
+
+        img_name = self.image_names[index]
+        img_gt_box_path = os.path.join(self.img_gt_box_dir, "gt_%s.txt" % os.path.splitext(img_name)[0])
+        word_bboxes, words = self.load_img_gt_box(img_gt_box_path)
+
+        word_bboxes = np.float32(word_bboxes)
+
+        img_path = os.path.join(self.img_dir, img_name)
+        image = cv2.imread(img_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = random_scale(image, word_bboxes, self.output_size)
+
+        confidence_mask = np.ones((image.shape[0], image.shape[1]), np.float32)
+
+        word_level_char_bbox = []
+        new_words = []
+        new_imagename = ''
+
+        if len(word_bboxes) > 0:
+            for i in range(len(word_bboxes)):
+
+                if words[i] == '###' or len(words[i].strip()) == 0:
+                    cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], (0))
+                    continue
+                assert words[i] != '###' and len(words[i].strip()) != 0
+
+                pursedo_viz = False
+                if int(img_name.split('.')[0].split('_')[1]) in self.vis_index:
+                    pursedo_viz = True
+                    new_imagename = img_name.split('.')[0] + '_' + str(i)
+
+                pursedo_bboxes, bbox_region_scores, confidence = self.inference_pursedo_bboxes(self.net, image,
+                                                                                               word_bboxes[i],
+                                                                                               words[i],
+                                                                                               vis_opt=pursedo_viz,
+                                                                                               img_name=new_imagename)
+
+                cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], (confidence))
+                new_words.append(words[i])
+                word_level_char_bbox.append(pursedo_bboxes)
+
+        return image, word_level_char_bbox, new_words, confidence_mask
+
+
+    def load_image_gt_and_saved_confidence_mask(self, index):
+        pass
+        #-------------------------------------------------------------------------------------#
+
+        # To make confidence_mask : 처음에만 실행될, save 할 confidence mask를 만드는 과정
+
+        # confidence_mask = np.ones((image.shape[0], image.shape[1]), np.float32)
+        #
+        # confidences = []
+        # new_imagename = ''
+        #
+        # if len(word_bboxes) > 0:
+        #     for i in range(len(word_bboxes)):
+        #
+        #         if words[i] == '###' or len(words[i].strip()) == 0:
+        #             cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], (0))
+        #             continue
+        #         assert words[i] != '###' and len(words[i].strip()) != 0
+        #
+        #
+        #         pursedo_viz = False
+        #         if int(img_name.split('.')[0].split('_')[1]) in self.vis_index :
+        #             pursedo_viz = True
+        #             new_imagename = img_name.split('.')[0] +'_'+str(i)
+        #
+        #         query_idx = int(self.get_img_name(index).split('.')[0].split('_')[1])
+        #         saved_region_scores_path = os.path.join(self.saved_gt_dir, f'res_img_{query_idx}_region.jpg')
+        #         # import ipdb; ipdb.set_trace()
+        #         region_score = cv2.imread(saved_region_scores_path, cv2.IMREAD_GRAYSCALE)
+        #         region_score = cv2.resize(region_score, (image.shape[1], image.shape[0])).astype(np.float32)
+        #
+        #         confidence = self.get_confidence_by_contour(image, region_score, word_bboxes[i], words[i], new_imagename, pursedo_viz)
+        #         confidences.append(confidence)
+        #         cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], (confidence))
+        #
+        # return image, word_bboxes, confidence_mask, confidences
+
+    def make_pseudo_gt(self, index):
+        image, word_level_char_bbox, words, confidence_mask = self.load_image_gt_and_confidence_mask(index)
+
+        # # save confidence mask
+        # confidence_mask_copy = (confidence_mask * 255).astype(np.uint8)
+        # confidence_mask_copy = cv2.applyColorMap(confidence_mask_copy, cv2.COLORMAP_JET)
+        # cv2.imwrite(os.path.join(self.saved_gt_dir, f'res_img_{query_idx}_cf_mask_jet_thresh_0.6.jpg'), confidence_mask_copy)
+        # cv2.imwrite(os.path.join(self.saved_gt_dir, f'res_img_{query_idx}_cf_mask_thresh_0.6.jpg'), confidence_mask)
+
+
+        region_score = np.zeros((image.shape[0], image.shape[1]), dtype=np.float32)
+        affinity_score = np.zeros((image.shape[0], image.shape[1]), dtype=np.float32)
+
+        if len(word_level_char_bbox) > 0:
+            region_score = self.gen.generate_region(image.shape, word_level_char_bbox)
+            affinity_score, affinity_bboxes = self.gen.generate_affinity(image.shape, word_level_char_bbox, words)
+
+        if int(self.get_img_name(index).split('.')[0].split('_')[1]) in self.vis_index and \
+                self.get_img_name(index).split('_')[0] == 'img':
+            self.vis_opt = True
+
+        image = imgproc.normalizeMeanVariance(np.array(image), mean=(0.485, 0.456, 0.406),
+                                              variance=(0.229, 0.224, 0.225))
+        image = image.transpose(2, 0, 1)
+
+        self.vis_opt = False
+
+
+        return image, region_score, affinity_score, confidence_mask, word_level_char_bbox, words
+
+
+    def load_saved_gt(self, index):
+        img_name = self.image_names[index]
+        img_path = os.path.join(self.img_dir, img_name)
+        image = cv2.imread(img_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        img_gt_box_path = os.path.join(self.img_gt_box_dir, "gt_%s.txt" % os.path.splitext(img_name)[0])
+        word_bboxes, words = self.load_img_gt_box(img_gt_box_path)
+        word_bboxes = np.float32(word_bboxes)
+
+        query_idx = int(self.get_img_name(index).split('.')[0].split('_')[1])
+
+        import ipdb; ipdb.set_trace()
+        # use official CRAFT model's output as teacher (to make pseudo-label)
+        saved_region_scores_path = os.path.join(self.saved_gt_dir, f'res_img_{query_idx}_region.jpg')
+        saved_affi_scores_path = os.path.join(self.saved_gt_dir, f'res_img_{query_idx}_affi.jpg')
+        region_score = cv2.imread(saved_region_scores_path, cv2.IMREAD_GRAYSCALE)
+        affinity_score = cv2.imread(saved_affi_scores_path, cv2.IMREAD_GRAYSCALE)
+        region_score = cv2.resize(region_score, (image.shape[1], image.shape[0])).astype(np.float32)
+        affinity_score = cv2.resize(affinity_score, (image.shape[1], image.shape[0])).astype(np.float32)
+
+        saved_cf_mask_path = os.path.join(self.saved_gt_dir, f'res_img_{query_idx}_cf_mask_thresh_0.6.jpg')
+        confidence_mask = cv2.imread(saved_cf_mask_path, cv2.IMREAD_GRAYSCALE)
+        confidence_mask = cv2.resize(confidence_mask, (image.shape[1], image.shape[0])).astype(np.float32)
+
+        # 기존 code 중 아래 random_crop에서 쓰이게 될 character bboxes 형식을 맞춰주기 위해, word bboxes를 1개의 character씩 담긴 bboxes로 만들어 줌
+        word_level_char_bbox = []
+        trunc_mask = np.zeros([image.shape[0], image.shape[1]])
+        for i in range(len(word_bboxes)):
+            cv2.fillPoly(trunc_mask, [np.int32(word_bboxes[i])], 1)
+            if (word_bboxes[i] < 0).sum() > 0:
+                word_bboxes[i] = np.where(word_bboxes[i] < 0, 0, word_bboxes[i])
+            word_level_char_bbox.append(np.expand_dims(word_bboxes[i], 0))
+
+        # truncate region, affinity out of GT box
+        trunc_mask = trunc_mask.astype(np.float32)
+        region_score = region_score * trunc_mask
+        affinity_score = affinity_score * trunc_mask
+
+        #check minus coordinate
+        for cb in word_level_char_bbox :
+            if (cb < 0).astype('float32').sum() > 0 :
+                import ipdb;ipdb.set_trace()
+                print(query_idx)
+
+        if int(self.get_img_name(index).split('.')[0].split('_')[1]) in self.vis_index and \
+                self.get_img_name(index).split('_')[0] == 'img':
+            self.vis_opt = True
+
+        self.vis_opt = False
+
+        return (
+            image,
+            region_score,
+            affinity_score,
+            confidence_mask,
+            word_level_char_bbox,
+            words,
+        )
+
+    def augment_image(self, image, region_score, affinity_score, confidence_mask, word_level_char_bbox):
+
+        augment_targets = [image, region_score, affinity_score, confidence_mask]
+
+        if self.aug.random_scale.option:
+            augment_targets, word_level_char_bbox = random_scale(augment_targets, word_level_char_bbox, self.aug.random_scale.range)
+
+        if self.aug.random_rotate.option:
+            augment_targets = random_rotate(augment_targets, self.aug.random_rotate.max_angle)
+
+        if self.aug.random_crop.option:
+            if self.aug.random_crop.version == "random_crop_with_bbox_adapt_to_output_size":
+                augment_targets = random_crop_with_bbox_adapt_to_output_size(
+                    augment_targets, word_level_char_bbox, self.output_size
+                )
+            elif self.aug.random_crop.version == "random_resize_crop":
+                augment_targets = random_resize_crop(
+                    augment_targets, self.aug.random_crop.scale, self.aug.random_crop.ratio, self.output_size
+                )
+            else:
+                assert "Undefined RandomCrop version"
+
+        if self.aug.random_horizontal_flip.option:
+            augment_targets = random_horizontal_flip(augment_targets)
+
+        if self.aug.random_colorjitter.option:
+            image, region_score, affinity_score, confidence_mask = augment_targets
+            image = Image.fromarray(image)
+            image = transforms.ColorJitter(brightness=self.aug.random_colorjitter.brightness,
+                                           contrast=self.aug.random_colorjitter.contrast,
+                                           saturation=self.aug.random_colorjitter.saturation,
+                                           hue=self.aug.random_colorjitter.hue)(image)
+        else:
+            image, region_score, affinity_score, confidence_mask = augment_targets
+
+        return np.array(image), region_score, affinity_score, confidence_mask
+
+    def resize_to_half(self, ground_truth):
+        return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2))
+
+    def __len__(self):
+        return len(self.image_names)
+
+    def __getitem__(self, index):
+
+        if self.saved_gt_dir == "":
+            (
+                image,
+                region_score,
+                affinity_score,
+                confidence_mask,
+                word_level_char_bbox,
+                words,
+            ) = self.make_pseudo_gt(index)
+        else:
+            (
+                image,
+                region_score,
+                affinity_score,
+                confidence_mask,
+                word_level_char_bbox,
+                words,
+            ) = self.load_saved_gt(index)
+
+        image, region_score, affinity_score, confidence_mask = \
+            self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
 
         region_score = self.resize_to_half(region_score)
         affinity_score = self.resize_to_half(affinity_score)
