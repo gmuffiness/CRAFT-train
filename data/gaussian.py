@@ -74,10 +74,11 @@ class GaussianBuilder(object):
         """
         mapping Gaussian heat maps to the character box coordinates of the image.
         """
-        #
+
         # if map_type == "region":
         #     # TODO : edit enlargebox output type from int 32 to float32
         #     bbox = enlargebox(bbox, image.shape[0], image.shape[1], self.enlarge_size)
+
         bbox = enlargebox(bbox, image.shape[0], image.shape[1], self.enlarge_size)
 
         if (

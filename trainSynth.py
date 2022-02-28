@@ -25,7 +25,6 @@ from model.craft import CRAFT
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils.util import copyStateDict, save_parser
 
-
 class Trainer(object):
     def __init__(self, config):
 
@@ -89,9 +88,6 @@ class Trainer(object):
         return criterion
 
     def train(self, gpu):
-        if gpu == 0:
-            print("start training")
-
         trn_loader = self.synth_loader
         # -------------------------------------------------------------------------------------------------------#
         craft = CRAFT(pretrained=True, amp=self.config.train.amp)
@@ -150,7 +146,6 @@ class Trainer(object):
                 affinity_image,
                 confidence_mask,
             ) in enumerate(trn_loader):
-
                 craft.train()
                 if train_step > 0 and train_step % self.config.train.lr_decay == 0:
                     update_lr_rate_step += 1
@@ -180,6 +175,7 @@ class Trainer(object):
                             out2,
                             confidence_mask_label,
                             self.config.train.neg_rto,
+                            self.config.train.n_min_neg
                         )
 
                     optimizer.zero_grad()
@@ -208,8 +204,21 @@ class Trainer(object):
                 loss_value += loss.item()
                 batch_time += end_time - start_time
 
+
                 if gpu == 0:
                     wandb.log({"SynthText Loss": loss.item()})
+
+                if train_step > 0 and train_step%5==0 and gpu == 0:
+                    mean_loss = loss_value / 5
+                    loss_value = 0
+                    avg_batch_time = batch_time/5
+                    batch_time = 0
+
+                    print("{}, training_step: {}|{}, learning rate: {:.8f}, training_loss: {:.5f}, avg_batch_time: {:.5f}"
+                          .format(time.strftime('%Y-%m-%d:%H:%M:%S',time.localtime(time.time())), train_step,
+                                  whole_training_step, training_lr, mean_loss, avg_batch_time))
+                    wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
+
 
                 if train_step % 500 == 0 and train_step != 0 and gpu == 0:
 
@@ -331,6 +340,11 @@ def main_worker(gpu, ngpus_per_node):
     config = load_yaml(args.yaml)
 
     if gpu == 0:
+        # Apply config to wandb
+        # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
+        wandb.init(project="ocr_craft", name=args.yaml)
+        wandb.config.update(config)
+        print(yaml.dump(config))
         # Make result_dir
         res_dir = os.path.join("exp", args.yaml)
         config["results_dir"] = res_dir
@@ -342,9 +356,6 @@ def main_worker(gpu, ngpus_per_node):
             "config/" + args.yaml + ".yaml", os.path.join(res_dir, args.yaml) + ".yaml"
         )
 
-        # Apply config to wandb
-        wandb.init(project="jm-test", entity="pingu", name=args.yaml)
-        wandb.config.update(config)
 
 
     batch_size = int(config["train"]["batch_size"] / ngpus_per_node)

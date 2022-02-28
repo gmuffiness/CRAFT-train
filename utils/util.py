@@ -9,6 +9,7 @@ import numpy as np
 from data import imgproc
 
 from config import config
+# from config.load_config import cfg
 from utils import craft_utils
 
 
@@ -22,7 +23,6 @@ def copyStateDict(state_dict):
         name = ".".join(k.split(".")[start_idx:])
         new_state_dict[name] = v
     return new_state_dict
-
 
 def saveInput(imagename, image, region_scores, affinity_scores, confidence_mask):
     image = np.uint8(image.copy())
@@ -96,7 +96,6 @@ def saveImage(imagename, image, bboxes, affinity_bboxes, region_scores, affinity
         os.makedirs(os.path.dirname(outpath))
 
     cv2.imwrite(outpath, output)
-
 
 
 def save_parser(args):
