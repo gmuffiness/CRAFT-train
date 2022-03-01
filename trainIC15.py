@@ -18,7 +18,7 @@ import wandb
 import yaml
 
 from config.load_config import load_yaml, DotDict
-from data.dataset import SynthTextDataSet
+from data.dataset import SynthTextDataSet, ICDAR2015
 from eval import main as main_eval
 from loss.mseloss import Maploss, Maploss_v2, Maploss_v3
 from model.craft import CRAFT
@@ -31,6 +31,7 @@ class Trainer(object):
         self.config = config
         self.gpu = gpu
         self.synth_loader = self._get_synth_loader()
+        self.icdar_loader = self._get_icdar_loader()
         self.net_param = self._get_load_param(gpu)
 
     def _get_synth_loader(self):
@@ -43,14 +44,14 @@ class Trainer(object):
             gauss_init_size=self.config.train.data.gauss_init_size,
             gauss_sigma=self.config.train.data.gauss_sigma,
             enlarge_size=self.config.train.data.enlarge_size,
-            aug=self.config.train.data.aug,
+            aug=self.config.train.data.syn_aug,
             vis_opt=self.config.train.data.vis_opt,
         )
 
         synth_sampler = torch.utils.data.distributed.DistributedSampler(synth_dataset)
         synth_loader = torch.utils.data.DataLoader(
             synth_dataset,
-            batch_size=self.config.train.batch_size,
+            batch_size=self.config.train.batch_size//5,
             shuffle=False,
             num_workers=self.config.train.num_workers,
             sampler=synth_sampler,
@@ -58,7 +59,56 @@ class Trainer(object):
             pin_memory=True,
         )
 
+
+        # #dp
+        # synth_loader = torch.utils.data.DataLoader(
+        #     synth_dataset,
+        #     batch_size=self.config.train.batch_size//5,
+        #     shuffle=False,
+        #     num_workers=self.config.train.num_workers,
+        #     drop_last=False,
+        #     pin_memory=True,
+        # )
+
+
         return synth_loader
+
+    def _get_icdar_loader(self):
+
+        icdar15_dataset = ICDAR2015(
+            output_size=self.config.train.data.output_size,
+            data_dir=self.config.data_dir.ic15,
+            saved_gt_dir=self.config.data_dir.ic15_gt,
+            gauss_init_size=self.config.train.data.gauss_init_size,
+            gauss_sigma=self.config.train.data.gauss_sigma,
+            enlarge_size=self.config.train.data.enlarge_size,
+            aug=self.config.train.data.icdar_aug,
+            vis_opt=self.config.train.data.vis_opt,
+        )
+
+        icdar15_sampler = torch.utils.data.distributed.DistributedSampler(icdar15_dataset)
+        icdar15_loader = torch.utils.data.DataLoader(
+            icdar15_dataset,
+            batch_size=self.config.train.batch_size,
+            shuffle=False,
+            num_workers=self.config.train.num_workers,
+            sampler=icdar15_sampler,
+            drop_last=False,
+            pin_memory=True,
+        )
+
+        #dp
+        # icdar15_loader = torch.utils.data.DataLoader(
+        #     icdar15_dataset,
+        #     batch_size=self.config.train.batch_size,
+        #     shuffle=False,
+        #     num_workers=self.config.train.num_workers,
+        #     drop_last=False,
+        #     pin_memory=True,
+        # )
+
+        return icdar15_loader
+
 
     def _get_load_param(self, gpu):
 
@@ -69,7 +119,6 @@ class Trainer(object):
             param = None
 
         return param
-
 
     def _adjust_learning_rate(self, optimizer, gamma, step, lr):
         """Sets the learning rate to the initial LR decayed by 10 at every
@@ -92,24 +141,28 @@ class Trainer(object):
 
     def train(self):
 
+        trn_syn_loader = self.synth_loader
+        batch_syn = iter(trn_syn_loader)
+        trn_icdar_loader = self.icdar_loader
 
-        trn_loader = self.synth_loader
+
         # -------------------------------------------------------------------------------------------------------#
         craft = CRAFT(pretrained=True, amp=self.config.train.amp)
         # load model
         if self.config.train.ckpt_path is not None:
             craft.load_state_dict(copyStateDict(self.net_param["craft"]))
 
-
         craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
         torch.cuda.set_device(self.gpu)
         craft = craft.cuda(self.gpu)
         craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[self.gpu])
 
-
+        #craft = torch.nn.DataParallel(craft).cuda()
 
         torch.backends.cudnn.benchmark = True
         # ----------------------------------------------------------------------------------------------------------#
+
+
 
         optimizer = optim.Adam(
             craft.parameters(),
@@ -149,11 +202,11 @@ class Trainer(object):
         start_time = time.time()
         while train_step < whole_training_step:
             for index, (
-                image,
-                region_image,
-                affinity_image,
-                confidence_mask,
-            ) in enumerate(trn_loader):
+                icdar_image,
+                icdar_region_label,
+                icdar_affi_label,
+                icdar_confidence_mask,
+            ) in enumerate(trn_icdar_loader):
                 craft.train()
                 if train_step > 0 and train_step % self.config.train.lr_decay == 0:
                     update_lr_rate_step += 1
@@ -164,10 +217,20 @@ class Trainer(object):
                         self.config.train.lr,
                     )
 
-                images = Variable(image).cuda()
-                region_image_label = Variable(region_image).cuda()
-                affinity_image_label = Variable(affinity_image).cuda()
-                confidence_mask_label = Variable(confidence_mask).cuda()
+                # syn image load
+                syn_image, syn_region_label, syn_affi_label, syn_confidence_mask = next(batch_syn)
+                images = torch.cat((syn_image, icdar_image), 0)
+
+                # cat syn & icdar image
+                region_image_label = torch.cat((syn_region_label, icdar_region_label), 0)
+                affinity_image_label = torch.cat((syn_affi_label, icdar_affi_label), 0)
+                confidence_mask = torch.cat((syn_confidence_mask, icdar_confidence_mask), 0)
+
+
+                images = Variable(images).cuda()
+                region_image_label = Variable(region_image_label.type(torch.FloatTensor)).cuda()
+                affinity_image_label = Variable(affinity_image_label.type(torch.FloatTensor)).cuda()
+                confidence_mask_label = Variable(confidence_mask.type(torch.FloatTensor)).cuda()
 
                 if self.config.train.amp:
                     with torch.cuda.amp.autocast():
@@ -216,6 +279,7 @@ class Trainer(object):
                 if self.gpu == 0:
                     wandb.log({"SynthText Loss": loss.item()})
 
+
                 if train_step > 0 and train_step%5==0 and self.gpu == 0:
                     mean_loss = loss_value / 5
                     loss_value = 0
@@ -229,7 +293,7 @@ class Trainer(object):
                     wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
 
-                if train_step % 500 == 0 and train_step != 0 and self.gpu == 0:
+                if train_step % 50 == 0 and train_step != 0 and self.gpu == 0:
 
                     print("Saving state, index:", train_step)
                     save_param_dic = {

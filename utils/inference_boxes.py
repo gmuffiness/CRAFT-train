@@ -8,10 +8,10 @@ import numpy as np
 import torch
 from torch.autograd import Variable
 
-from utils.craft_utils import mep, getDetBoxes, adjustResultCoordinates
+from utils.craft_utils import getDetBoxes, adjustResultCoordinates
 from data import imgproc
 from data.dataset import SynthTextDataSet
-
+from data.pointClockOrder import mep
 
 def load_synthtext_gt(data_folder):
 
