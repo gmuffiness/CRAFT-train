@@ -1,3 +1,4 @@
+
 import random
 
 import cv2
@@ -5,6 +6,7 @@ import numpy as np
 from PIL import Image
 from torchvision.transforms.functional import resized_crop
 from torchvision.transforms import RandomResizedCrop
+
 
 def random_scale(images, word_level_char_bbox, scale_range):
     scale = random.sample(scale_range, 1)[0]
@@ -15,7 +17,7 @@ def random_scale(images, word_level_char_bbox, scale_range):
     for i in range(len(word_level_char_bbox)):
         word_level_char_bbox[i] *= scale
 
-    return images, word_level_char_bbox
+    return images,
 
 def random_rotate(images, max_angle):
     angle = random.random() * 2 * max_angle - max_angle
@@ -27,6 +29,7 @@ def random_rotate(images, max_angle):
         img_rotation = cv2.warpAffine(img, rotation_matrix, (h, w))
         images[i] = img_rotation
     return images
+
 
 def random_resize_crop(augment_targets, scale, ratio, size):
     # --------------------------------------------------------------------------------------------------------------#
@@ -58,6 +61,8 @@ def random_horizontal_flip(imgs):
         for i in range(len(imgs)):
             imgs[i] = np.flip(imgs[i], axis=1).copy()
     return imgs
+
+
 
 def padding_image(image,imgsize):
     length = max(image.shape[0:2])
@@ -176,7 +181,9 @@ def random_crop_with_bbox_adapt_to_output_size(augment_targets, word_level_char_
         if crop_w > tw or crop_h > th:
             augment_targets[idx] = padding_image(augment_targets[idx], tw)
 
+
     return augment_targets
+
 
 
 def random_crop_v2(imgs, img_size):
@@ -201,8 +208,6 @@ def random_crop_v2(imgs, img_size):
             imgs[idx] = padding_image(imgs[idx], tw)
 
     return imgs
-
-
 
 
 

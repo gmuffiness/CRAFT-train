@@ -1,6 +1,19 @@
-# Guide : Set PYTHONPATH
-# 1. vim ~/.bashrc
-# Add below line to 'bashrc' file
-# 2. export PYTHONPATH=$PYTHONPATH:${YOUR_PROJECT_ROOT_PATH}
-#CUDA_VISIBLE_DEVICES=0,1,3,4,5,6 python3 trainSynth.py --yaml=shwang_synthtext_test6_26
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 python3 trainSynth.py --yaml=default
+
+#!/bin/bash
+export LC_ALL=en_US.UTF-8
+export LANG=en_US.UTF-8
+export PYTHONIOENCODING=UTF-8
+
+
+
+SET=$(seq 1 1 1)
+for i in $SET
+
+do
+
+  CUDA_VISIBLE_DEVICES=0,1,2,3 python3 trainSynth_dp.py --yaml="synth_shwang" \
+
+
+
+done
+
