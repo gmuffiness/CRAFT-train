@@ -13,7 +13,7 @@ import Polygon as plg
 from collections import OrderedDict
 from data.boxEnlarge import enlargebox
 
-def watershed_v2(region_score, input_img, viz):
+def watershed_v2(region_score, input_img, pseudo_vis_opt):
 
     if region_score.max() < 255 * 0.05:
         return np.array([], dtype=np.uint8), np.zeros(region_score.shape, np.uint8)
@@ -114,7 +114,7 @@ def watershed_v2(region_score, input_img, viz):
     #boxes = np.array(boxes) * 2
     #boxes = sorted(boxes, key=lambda item: (item[0][0], item[0][1]))
 
-    if viz:
+    if pseudo_vis_opt:
         sure_bg_copy = cv2.cvtColor(sure_bg, cv2.COLOR_GRAY2RGB)
         sure_fg_copy = cv2.cvtColor(sure_fg, cv2.COLOR_GRAY2RGB)
         unknown_copy = cv2.cvtColor(unknown, cv2.COLOR_GRAY2RGB)
@@ -134,7 +134,7 @@ def watershed_v2(region_score, input_img, viz):
     # import ipdb; ipdb.set_trace()
     return np.array(boxes), color_markers
 
-def watershed_v3(region_score, input_img, viz):
+def watershed_v3(region_score, input_img, pseudo_vis_opt):
 
     if region_score.max() < 255 * 0.5:
         return np.array([], dtype=np.uint8), np.zeros(region_score.shape, np.uint8)
@@ -235,7 +235,7 @@ def watershed_v3(region_score, input_img, viz):
     #boxes = np.array(boxes) * 2
     #boxes = sorted(boxes, key=lambda item: (item[0][0], item[0][1]))
 
-    if viz:
+    if pseudo_vis_opt:
         sure_bg_copy = cv2.cvtColor(sure_bg, cv2.COLOR_GRAY2RGB)
         sure_fg_copy = cv2.cvtColor(sure_fg, cv2.COLOR_GRAY2RGB)
         unknown_copy = cv2.cvtColor(unknown, cv2.COLOR_GRAY2RGB)
@@ -255,7 +255,7 @@ def watershed_v3(region_score, input_img, viz):
     # import ipdb; ipdb.set_trace()
     return np.array(boxes), color_markers
 
-def exec_watershed_by_version(watershed_ver, bgr_region_scores, input, vis_opt):
+def exec_watershed_by_version(watershed_ver, bgr_region_scores, input, pseudo_vis_opt):
 
     # 새로운 watershed version을 추가할 때마다, 아래 dict에 추가해줘야 함.
     # => 더 깔끔하게 할 수 없을까?
@@ -266,6 +266,6 @@ def exec_watershed_by_version(watershed_ver, bgr_region_scores, input, vis_opt):
     }
 
     try:
-        return func_name_map_dict[watershed_ver](bgr_region_scores, input, vis_opt)
+        return func_name_map_dict[watershed_ver](bgr_region_scores, input, pseudo_vis_opt)
     except:
         print(f'Watershed version {watershed_ver} does not exist in func_name_map_dict.')

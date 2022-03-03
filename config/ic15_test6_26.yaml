@@ -1,16 +1,17 @@
 
-results_dir : "./exp/"
-vis_test_dir : "/nas/home/gmuffiness/result/debug"
+results_dir: "./exp/"
+vis_test_dir: "/nas/home/gmuffiness/result/debug"
 data_dir:
-  synthtext : "/data/SynthText/"
-  synthtext_gt : ""
-  ic15 : "/data/ICDAR2015/"
-  ic15_gt: "/data/ICDAR2015_official_supervision_v2/0"
-  ic13 : "/data/ICDAR2013/"
+  synthtext: "/data/SynthText/"
+  synthtext_gt: ""
+  ic15: "/data/ICDAR2015/"
+  ic15_gt: ""
+#  ic15_gt: "/data/ICDAR2015_official_supervision_v2/0"
+  ic13: "/data/ICDAR2013/"
 
 train:
   ckpt_path: "/nas/home/jihyokim/jm/CRAFT-Refactoring/config/shwang_test26_CRAFT_clr_amp_60000.pth"
-  batch_size: 1
+  batch_size: 20
   st_iter: 0
   end_iter: 10
   lr: 0.0001

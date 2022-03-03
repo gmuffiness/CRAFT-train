@@ -13,6 +13,7 @@ from data import imgproc
 from data.gaussian import GaussianBuilder
 from data.imgaug import random_scale, random_rotate, random_crop_with_bbox_adapt_to_output_size, random_resize_crop, random_horizontal_flip
 from data.pseudo_label.make_charbox import make_pseudo_char_box
+from utils.util import saveInput, saveImage
 
 class SynthTextDataSet(Dataset):
     def __init__(self, output_size, data_dir, saved_gt_dir, gauss_init_size, gauss_sigma, enlarge_size, aug, vis_opt):
@@ -214,8 +215,9 @@ class SynthTextDataSet(Dataset):
 
 
 class ICDAR2015(Dataset):
-    def __init__(self, output_size, data_dir, saved_gt_dir, gauss_init_size, gauss_sigma, enlarge_size, watershed_ver, aug, vis_opt, pseudo_vis_opt):
+    def __init__(self, net, output_size, data_dir, saved_gt_dir, gauss_init_size, gauss_sigma, enlarge_size, watershed_ver, aug, vis_opt, pseudo_vis_opt):
 
+        self.net = net
         self.output_size = output_size
         self.data_dir = data_dir
         self.saved_gt_dir = saved_gt_dir
@@ -228,10 +230,7 @@ class ICDAR2015(Dataset):
 
         self.img_dir = os.path.join(data_dir, 'ch4_training_images')
         self.img_gt_box_dir = os.path.join(data_dir, 'ch4_training_localization_transcription_gt')
-        self.image_names = os.listdir(self.img_dir)
-
-    def get_img_name(self, index):
-        return self.image_names[index]
+        self.img_names = os.listdir(self.img_dir)
 
     def load_img_gt_box(self, img_gt_box_path):
         lines = open(img_gt_box_path, encoding='utf-8').readlines()
@@ -249,7 +248,7 @@ class ICDAR2015(Dataset):
                 words.append('###')
                 word_bboxes.append(box_points)
                 continue
-            word_bboxes.append(np.array(box_points))
+            word_bboxes.append(np.array(box_points).astype(np.float64))
             words.append(word)
         return word_bboxes, words
 
@@ -290,7 +289,7 @@ class ICDAR2015(Dataset):
 
 
     def load_image_gt_and_confidence_mask(self, index):
-        img_name = self.image_names[index]
+        img_name = self.img_names[index]
         img_path = os.path.join(self.img_dir, img_name)
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -298,7 +297,6 @@ class ICDAR2015(Dataset):
         img_gt_box_path = os.path.join(self.img_gt_box_dir, "gt_%s.txt" % os.path.splitext(img_name)[0])
         word_bboxes, words = self.load_img_gt_box(img_gt_box_path)
         word_bboxes = np.float32(word_bboxes)
-
         confidence_mask = np.ones((image.shape[0], image.shape[1]), np.float32)
 
         word_level_char_bbox = []
@@ -313,11 +311,11 @@ class ICDAR2015(Dataset):
                 cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], (0))
                 continue
 
-            if int(img_name.split('.')[0].split('_')[1]) in self.vis_index:
-                self.pseudo_vis_opt = True
+            if self.pseudo_vis_opt and int(img_name.split('.')[0].split('_')[1]) in self.vis_index:
                 new_imagename = img_name.split('.')[0] + '_' + str(i)
 
-            pseudo_char_bbox, confidence = make_pseudo_char_box(image,
+            pseudo_char_bbox, confidence = make_pseudo_char_box(self.net,
+                                                                image,
                                                                word_bboxes[i],
                                                                words[i],
                                                                self.watershed_ver,
@@ -358,7 +356,7 @@ class ICDAR2015(Dataset):
         #             self.pseudo_vis_opt = True
         #             new_imagename = img_name.split('.')[0] +'_'+str(i)
         #
-        #         query_idx = int(self.get_img_name(index).split('.')[0].split('_')[1])
+        #         query_idx = int(self.img_names[index].split('.')[0].split('_')[1])
         #         saved_region_scores_path = os.path.join(self.saved_gt_dir, f'res_img_{query_idx}_region.jpg')
         #         # import ipdb; ipdb.set_trace()
         #         region_score = cv2.imread(saved_region_scores_path, cv2.IMREAD_GRAYSCALE)
@@ -379,22 +377,23 @@ class ICDAR2015(Dataset):
 
     def make_pseudo_gt(self, index):
         image, word_level_char_bbox, words, confidence_mask = self.load_image_gt_and_confidence_mask(index)
+        img_h, img_w, _ = image.shape
 
         if len(word_level_char_bbox) > 0:
-            region_score = self.gen.generate_region(image.shape, word_level_char_bbox)
-            affinity_score, affinity_bboxes = self.gen.generate_affinity(image.shape, word_level_char_bbox, words)
+            region_score = self.gaussian_builder.generate_region(img_h, img_w, word_level_char_bbox)
+            affinity_score, _ = self.gaussian_builder.generate_affinity(img_h, img_w, word_level_char_bbox)
         else:
             region_score = np.zeros((image.shape[0], image.shape[1]), dtype=np.float32)
             affinity_score = np.zeros((image.shape[0], image.shape[1]), dtype=np.float32)
 
-        if int(self.get_img_name(index).split('.')[0].split('_')[1]) in self.vis_index:
+        if int(self.img_names[index].split('.')[0].split('_')[1]) in self.vis_index:
             self.vis_opt = True
 
         return image, region_score, affinity_score, confidence_mask, word_level_char_bbox, words
 
 
     def load_saved_gt(self, index):
-        img_name = self.image_names[index]
+        img_name = self.img_names[index]
         img_path = os.path.join(self.img_dir, img_name)
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -403,7 +402,7 @@ class ICDAR2015(Dataset):
         word_bboxes, words = self.load_img_gt_box(img_gt_box_path)
         word_bboxes = np.float32(word_bboxes)
 
-        query_idx = int(self.get_img_name(index).split('.')[0].split('_')[1])
+        query_idx = int(self.img_names[index].split('.')[0].split('_')[1])
 
         # use official CRAFT model's output as teacher (to make pseudo-label)
         saved_region_scores_path = os.path.join(self.saved_gt_dir, f'res_img_{query_idx}_region.jpg')
@@ -437,8 +436,8 @@ class ICDAR2015(Dataset):
                 import ipdb;ipdb.set_trace()
                 print(query_idx)
 
-        if int(self.get_img_name(index).split('.')[0].split('_')[1]) in self.vis_index and \
-                self.get_img_name(index).split('_')[0] == 'img':
+        if int(self.img_names[index].split('.')[0].split('_')[1]) in self.vis_index and \
+                self.img_names[index].split('_')[0] == 'img':
             self.vis_opt = True
 
         self.vis_opt = False
@@ -493,7 +492,7 @@ class ICDAR2015(Dataset):
         return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2))
 
     def __len__(self):
-        return len(self.image_names)
+        return len(self.img_names)
 
     def __getitem__(self, index):
         if self.saved_gt_dir == "":
@@ -515,8 +514,25 @@ class ICDAR2015(Dataset):
                 words,
             ) = self.load_saved_gt(index)
 
+        query_idx = int(self.img_names[index].split('.')[0].split('_')[1])
+
+        # NOTE : 임시 test용으로만 사용할 코드라, 이미지 저장할 폴더 경로 hard-coding 되어 있음.
+        if self.vis_opt and query_idx in self.vis_index:
+            saveImage(self.img_names[index], '/nas/home/gmuffiness/result/debug', image.copy(), word_level_char_bbox.copy(),
+                      region_score.copy(), affinity_score.copy(), confidence_mask.copy())
+
         image, region_score, affinity_score, confidence_mask = \
             self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
+
+        if self.vis_opt and query_idx in self.vis_index:
+            saveInput(
+                self.img_names[index],
+                '/nas/home/gmuffiness/result/debug',
+                image,
+                region_score,
+                affinity_score,
+                confidence_mask,
+            )
 
         region_score = self.resize_to_half(region_score)
         affinity_score = self.resize_to_half(affinity_score)
