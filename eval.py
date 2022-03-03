@@ -180,17 +180,16 @@ def load_test_dataset(test_folder_name, config):
     # TODO if문을 삭제할 수 있지 않을까??
 
     if test_folder_name == "synthtext":
-        total_bboxes_gt, total_img_path = load_synthtext_gt(config.test.test_folder)
+        total_bboxes_gt, total_img_path = load_synthtext_gt(config.test.test_data_dir)
 
     elif test_folder_name == "icdar2013":
         total_bboxes_gt, total_img_path = load_icdar2013_gt(
-            dataFolder=config.test.test_folder, isTraing=config.test.isTraingDataset
-        )
+            dataFolder=config.test.test_data_dir)
+
 
     elif test_folder_name == "icdar2015":
         total_bboxes_gt, total_img_path = load_icdar2015_gt(
-            dataFolder=config.test.test_folder, isTraing=config.test.isTraingDataset
-        )
+            dataFolder=config.test.test_data_dir)
 
     else:
         print("not found test dataset")
@@ -228,7 +227,7 @@ def main(model_path, config, evaluator, result_dir, viz=True):
 
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
-    test_folder_name = config.test.test_folder.split("/")[-2].lower()
+    test_folder_name = config.test.test_data_dir.split("/")[-2].lower()
 
     # load model
     model = CRAFT()  # initialize

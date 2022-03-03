@@ -9,10 +9,11 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 import torch
-from torch.autograd import Variable
-import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
+import torch.backends.cudnn as cudnn
+from torch.autograd import Variable
+from torchvision.transforms.functional import to_pil_image
 import wandb
 import yaml
 
@@ -25,11 +26,12 @@ from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils.util import copyStateDict, save_parser
 
 class Trainer(object):
-    def __init__(self, config):
+    def __init__(self, config, gpu):
 
         self.config = config
+        self.gpu = gpu
         self.synth_loader = self._get_synth_loader()
-        self.net_param = self._get_load_param()
+        self.net_param = self._get_load_param(gpu)
 
     def _get_synth_loader(self):
         # 나중에 따로 동작할 수 도 있을 것 같아서 분리 시켜 놓음
@@ -42,7 +44,7 @@ class Trainer(object):
             gauss_sigma=self.config.train.data.gauss_sigma,
             enlarge_size=self.config.train.data.enlarge_size,
             aug=self.config.train.data.aug,
-            logging=self.config.train.data.logging,
+            vis_opt=self.config.train.data.vis_opt,
         )
 
         synth_sampler = torch.utils.data.distributed.DistributedSampler(synth_dataset)
@@ -58,14 +60,16 @@ class Trainer(object):
 
         return synth_loader
 
-    def _get_load_param(self):
+    def _get_load_param(self, gpu):
 
         if self.config.train.ckpt_path is not None:
-            param = torch.load(self.config.ckpt_path)
+            map_location = {'cuda:%d' % 0: 'cuda:%d' % gpu}
+            param = torch.load(self.config.train.ckpt_path, map_location=map_location)
         else:
             param = None
 
         return param
+
 
     def _adjust_learning_rate(self, optimizer, gamma, step, lr):
         """Sets the learning rate to the initial LR decayed by 10 at every
@@ -86,18 +90,23 @@ class Trainer(object):
             criterion = Maploss_v3()
         return criterion
 
-    def train(self, gpu):
+    def train(self):
+
+
         trn_loader = self.synth_loader
         # -------------------------------------------------------------------------------------------------------#
         craft = CRAFT(pretrained=True, amp=self.config.train.amp)
-        craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
-        torch.cuda.set_device(gpu)
-        craft = craft.cuda(gpu)
-        craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[gpu])
-
         # load model
         if self.config.train.ckpt_path is not None:
             craft.load_state_dict(copyStateDict(self.net_param["craft"]))
+
+
+        craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
+        torch.cuda.set_device(self.gpu)
+        craft = craft.cuda(self.gpu)
+        craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[self.gpu])
+
+
 
         torch.backends.cudnn.benchmark = True
         # ----------------------------------------------------------------------------------------------------------#
@@ -123,7 +132,7 @@ class Trainer(object):
 
             # load model
             if self.config.train.ckpt_path is not None:
-                craft.load_state_dict(copyStateDict(self.net_param["scaler"]))
+                scaler.load_state_dict(copyStateDict(self.net_param["scaler"]))
 
         # loss
         criterion = self._get_loss()
@@ -166,6 +175,7 @@ class Trainer(object):
                         output, _ = craft(images)
                         out1 = output[:, :, :, 0]
                         out2 = output[:, :, :, 1]
+
                         loss = criterion(
                             region_image_label,
                             affinity_image_label,
@@ -202,18 +212,24 @@ class Trainer(object):
                 loss_value += loss.item()
                 batch_time += end_time - start_time
 
-                if train_step > 0 and train_step%5==0 and gpu == 0:
+
+                if self.gpu == 0:
+                    wandb.log({"SynthText Loss": loss.item()})
+
+                if train_step > 0 and train_step%5==0 and self.gpu == 0:
                     mean_loss = loss_value / 5
                     loss_value = 0
                     avg_batch_time = batch_time/5
                     batch_time = 0
 
-                    print("{}, training_step: {}|{}, learning rate: {:.8f}, training_loss: {:.5f}, avg_batch_time: {:.5f}"
-                          .format(time.strftime('%Y-%m-%d:%H:%M:%S',time.localtime(time.time())), train_step,
-                                  whole_training_step, training_lr, mean_loss, avg_batch_time))
+                    print("{}, training_step: {}|{}, learning rate: {:.8f}, "
+                          "training_loss: {:.5f}, avg_batch_time: {:.5f}"
+                          .format(time.strftime('%Y-%m-%d:%H:%M:%S',time.localtime(time.time())),
+                                  train_step, whole_training_step, training_lr, mean_loss, avg_batch_time))
                     wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
-                if train_step % 500 == 0 and train_step != 0 and gpu == 0:
+
+                if train_step % 500 == 0 and train_step != 0 and self.gpu == 0:
 
                     print("Saving state, index:", train_step)
                     save_param_dic = {
@@ -261,7 +277,7 @@ class Trainer(object):
                     break
 
         # save last model
-        if gpu == 0:
+        if self.gpu == 0:
             save_param_dic = {
                 "iter": train_step,
                 "craft": craft.state_dict(),
@@ -334,10 +350,12 @@ def main_worker(gpu, ngpus_per_node):
 
     if gpu == 0:
         # Apply config to wandb
-        # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
-        wandb.init(project="ocr_craft", name=args.yaml)
+        wandb.init(project="jm-test", entity="pingu", name=args.yaml)
         wandb.config.update(config)
+        print("-"*20+" Options "+"-"*20)
         print(yaml.dump(config))
+        print("-" * 40)
+
         # Make result_dir
         res_dir = os.path.join("exp", args.yaml)
         config["results_dir"] = res_dir
@@ -356,8 +374,8 @@ def main_worker(gpu, ngpus_per_node):
     config = DotDict(config)
 
     # Start train
-    trainer = Trainer(config)
-    trainer.train(gpu)
+    trainer = Trainer(config, gpu)
+    trainer.train()
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ results_dir : "./exp/"
 vis_test_dir : "/nas/home/gmuffiness/result/debug"
 data_dir:
   synthtext : "/data/SynthText/"
-  synthtext_gt : ""
+  synthtext_gt : null
   ic15 : "/data/ICDAR2015/"
   ic13 : "/data/ICDAR2013/"
 

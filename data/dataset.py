@@ -1,6 +1,7 @@
 import os
 import re
 import itertools
+import copy
 
 import numpy as np
 import scipy.io as scio
@@ -11,18 +12,36 @@ import torchvision.transforms as transforms
 
 from data import imgproc
 from data.gaussian import GaussianBuilder
-from data.imgaug import random_scale, random_rotate, random_crop_with_bbox_adapt_to_output_size, random_resize_crop, random_horizontal_flip
+from data.imgaug import (
+    random_crop_with_bbox_adapt_to_output_size,
+    random_horizontal_flip,
+    random_rotate,
+    random_scale,
+    random_resize_crop,
+)
 from data.pseudo_label.make_charbox import make_pseudo_char_box
 from utils.util import saveInput, saveImage
 
-class SynthTextDataSet(Dataset):
-    def __init__(self, output_size, data_dir, saved_gt_dir, gauss_init_size, gauss_sigma, enlarge_size, aug, vis_opt):
 
+class SynthTextDataSet(Dataset):
+    def __init__(
+        self,
+        output_size,
+        data_dir,
+        saved_gt_dir,
+        gauss_init_size,
+        gauss_sigma,
+        enlarge_size,
+        aug,
+        vis_opt,
+    ):
         self.output_size = output_size
         self.data_dir = data_dir
         self.saved_gt_dir = saved_gt_dir
         self.img_names, self.char_bbox, self.img_words = self.load_data()
-        self.gaussian_builder = GaussianBuilder(gauss_init_size, gauss_sigma, enlarge_size)
+        self.gaussian_builder = GaussianBuilder(
+            gauss_init_size, gauss_sigma, enlarge_size
+        )
         self.aug = aug
         self.vis_opt = vis_opt
 
@@ -33,10 +52,10 @@ class SynthTextDataSet(Dataset):
         img_names = gt["imnames"][0]
         img_words = gt["txt"][0]
 
-        if bbox == "char" :
+        if bbox == "char":
             img_bbox = gt["charBB"][0]
-        else: img_bbox = gt["wordBB"][0] # word bbox needed for test
-
+        else:
+            img_bbox = gt["wordBB"][0]  # word bbox needed for test
 
         return img_names, img_bbox, img_words
 
@@ -48,14 +67,22 @@ class SynthTextDataSet(Dataset):
 
         image, all_char_bbox = self.dilate_img_to_output_size(image, all_char_bbox)
 
-        region_score_path = os.path.join(os.path.join(self.saved_gt_dir, 'region/enlarge-1.75'), self.img_names[index][0][:-4] + '-region.jpg')
-        affinity_score_path = os.path.join(os.path.join(self.saved_gt_dir, 'affinity/enlarge-1.75'), self.img_names[index][0][:-4] + '-affinity.jpg')
+        region_score_path = os.path.join(
+            os.path.join(self.saved_gt_dir, "region/enlarge-1.75"),
+            self.img_names[index][0][:-4] + "-region.jpg",
+        )
+        affinity_score_path = os.path.join(
+            os.path.join(self.saved_gt_dir, "affinity/enlarge-1.75"),
+            self.img_names[index][0][:-4] + "-affinity.jpg",
+        )
         region_score = cv2.imread(region_score_path, cv2.IMREAD_GRAYSCALE)
         affinity_score = cv2.imread(affinity_score_path, cv2.IMREAD_GRAYSCALE)
 
         confidence_mask = np.ones((image.shape[0], image.shape[1]), dtype=np.uint8)
 
-        words = [re.split(" \n|\n |\n| ", word.strip()) for word in self.img_words[index]]
+        words = [
+            re.split(" \n|\n |\n| ", word.strip()) for word in self.img_words[index]
+        ]
         words = list(itertools.chain(*words))
         words = [word for word in words if len(word) > 0]
 
@@ -81,17 +108,20 @@ class SynthTextDataSet(Dataset):
         )
 
     def make_pseudo_gt(self, index):
+
         img_path = os.path.join(self.data_dir, self.img_names[index][0])
         image = cv2.imread(img_path, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         all_char_bbox = self.char_bbox[index].transpose((2, 1, 0))
-
         image, all_char_bbox = self.dilate_img_to_output_size(image, all_char_bbox)
+
         img_h, img_w, _ = image.shape
 
         confidence_mask = np.ones((img_h, img_w), dtype=np.uint8)
 
-        words = [re.split(" \n|\n |\n| ", word.strip()) for word in self.img_words[index]]
+        words = [
+            re.split(" \n|\n |\n| ", word.strip()) for word in self.img_words[index]
+        ]
         words = list(itertools.chain(*words))
         words = [word for word in words if len(word) > 0]
 
@@ -105,8 +135,12 @@ class SynthTextDataSet(Dataset):
             word_bbox = np.array(word_bbox)
             word_level_char_bbox.append(word_bbox)
 
-        region_score = self.gaussian_builder.generate_region(img_h, img_w, word_level_char_bbox)
-        affinity_score, _ = self.gaussian_builder.generate_affinity(img_h, img_w, word_level_char_bbox)
+        region_score = self.gaussian_builder.generate_region(
+            img_h, img_w, word_level_char_bbox
+        )
+        affinity_score, _ = self.gaussian_builder.generate_affinity(
+            img_h, img_w, word_level_char_bbox
+        )
 
         # TODO: output validation check
 
@@ -129,24 +163,36 @@ class SynthTextDataSet(Dataset):
         char_bbox *= scale
         return image, char_bbox
 
-    def augment_image(self, image, region_score, affinity_score, confidence_mask, word_level_char_bbox):
+    def augment_image(
+        self, image, region_score, affinity_score, confidence_mask, word_level_char_bbox
+    ):
 
         augment_targets = [image, region_score, affinity_score, confidence_mask]
 
         if self.aug.random_scale.option:
-            augment_targets, word_level_char_bbox = random_scale(augment_targets, word_level_char_bbox, self.aug.random_scale.range)
+            augment_targets, word_level_char_bbox = random_scale(
+                augment_targets, word_level_char_bbox, self.aug.random_scale.range
+            )
 
         if self.aug.random_rotate.option:
-            augment_targets = random_rotate(augment_targets, self.aug.random_rotate.max_angle)
+            augment_targets = random_rotate(
+                augment_targets, self.aug.random_rotate.max_angle
+            )
 
         if self.aug.random_crop.option:
-            if self.aug.random_crop.version == "random_crop_with_bbox_adapt_to_output_size":
+            if (
+                self.aug.random_crop.version
+                == "random_crop_with_bbox_adapt_to_output_size"
+            ):
                 augment_targets = random_crop_with_bbox_adapt_to_output_size(
                     augment_targets, word_level_char_bbox, self.output_size
                 )
             elif self.aug.random_crop.version == "random_resize_crop":
                 augment_targets = random_resize_crop(
-                    augment_targets, self.aug.random_crop.scale, self.aug.random_crop.ratio, self.output_size
+                    augment_targets,
+                    self.aug.random_crop.scale,
+                    self.aug.random_crop.ratio,
+                    self.output_size,
                 )
             else:
                 assert "Undefined RandomCrop version"
@@ -157,10 +203,12 @@ class SynthTextDataSet(Dataset):
         if self.aug.random_colorjitter.option:
             image, region_score, affinity_score, confidence_mask = augment_targets
             image = Image.fromarray(image)
-            image = transforms.ColorJitter(brightness=self.aug.random_colorjitter.brightness,
-                                           contrast=self.aug.random_colorjitter.contrast,
-                                           saturation=self.aug.random_colorjitter.saturation,
-                                           hue=self.aug.random_colorjitter.hue)(image)
+            image = transforms.ColorJitter(
+                brightness=self.aug.random_colorjitter.brightness,
+                contrast=self.aug.random_colorjitter.contrast,
+                saturation=self.aug.random_colorjitter.saturation,
+                hue=self.aug.random_colorjitter.hue,
+            )(image)
         else:
             image, region_score, affinity_score, confidence_mask = augment_targets
 
@@ -174,7 +222,7 @@ class SynthTextDataSet(Dataset):
 
     def __getitem__(self, index):
 
-        if self.saved_gt_dir == "":
+        if self.saved_gt_dir is None:
             (
                 image,
                 region_score,
@@ -226,8 +274,8 @@ class ICDAR2015(Dataset):
         self.aug = aug
         self.vis_opt = vis_opt
         self.pseudo_vis_opt = pseudo_vis_opt
-        self.vis_index = [189, 41, 723, 251, 232, 115, 634, 951, 247, 25, 400, 704, 619, 305, 423, 20, 31]
-
+        # self.vis_index = [189, 41, 723, 251, 232, 115, 634, 951, 247, 25, 400, 704, 619, 305, 423, 20, 31]
+        self.vis_index = list(range(1000))
         self.img_dir = os.path.join(data_dir, 'ch4_training_images')
         self.img_gt_box_dir = os.path.join(data_dir, 'ch4_training_localization_transcription_gt')
         self.img_names = os.listdir(self.img_dir)
@@ -307,21 +355,22 @@ class ICDAR2015(Dataset):
             return image, word_level_char_bbox, new_words, confidence_mask
 
         for i in range(len(word_bboxes)):
-            if words[i] == '###' or len(words[i].strip()) == 0:
-                cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], (0))
-                continue
 
             if self.pseudo_vis_opt and int(img_name.split('.')[0].split('_')[1]) in self.vis_index:
                 new_imagename = img_name.split('.')[0] + '_' + str(i)
 
             pseudo_char_bbox, confidence = make_pseudo_char_box(self.net,
                                                                 image,
-                                                               word_bboxes[i],
-                                                               words[i],
-                                                               self.watershed_ver,
-                                                               pseudo_vis_opt=self.pseudo_vis_opt,
-                                                               img_name=new_imagename)
+                                                                word_bboxes[i],
+                                                                words[i],
+                                                                self.watershed_ver,
+                                                                pseudo_vis_opt=self.pseudo_vis_opt,
+                                                                img_name=new_imagename)
 
+            # TODO: fill confidence mask 할 때, 더 낮은 값이 들어가도록 수정?
+            if words[i] == '###' or len(words[i].strip()) == 0:
+                cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], (0))
+                continue
             cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], confidence)
             new_words.append(words[i])
             word_level_char_bbox.append(pseudo_char_bbox)
@@ -495,7 +544,7 @@ class ICDAR2015(Dataset):
         return len(self.img_names)
 
     def __getitem__(self, index):
-        if self.saved_gt_dir == "":
+        if self.saved_gt_dir is None:
             (
                 image,
                 region_score,
@@ -515,14 +564,15 @@ class ICDAR2015(Dataset):
             ) = self.load_saved_gt(index)
 
         query_idx = int(self.img_names[index].split('.')[0].split('_')[1])
-
+        print(self.vis_opt, query_idx)
         # NOTE : 임시 test용으로만 사용할 코드라, 이미지 저장할 폴더 경로 hard-coding 되어 있음.
         if self.vis_opt and query_idx in self.vis_index:
             saveImage(self.img_names[index], '/nas/home/gmuffiness/result/debug', image.copy(), word_level_char_bbox.copy(),
                       region_score.copy(), affinity_score.copy(), confidence_mask.copy())
 
-        image, region_score, affinity_score, confidence_mask = \
-            self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
+        image, region_score, affinity_score, confidence_mask = self.augment_image(
+            image, region_score, affinity_score, confidence_mask, word_level_char_bbox
+        )
 
         if self.vis_opt and query_idx in self.vis_index:
             saveInput(

@@ -23,7 +23,6 @@ def copyStateDict(state_dict):
         new_state_dict[name] = v
     return new_state_dict
 
-
 def saveInput(imagename, vis_dir, image, region_scores, affinity_scores, confidence_mask):
     image = np.uint8(image.copy())
     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
@@ -42,7 +41,7 @@ def saveInput(imagename, vis_dir, image, region_scores, affinity_scores, confide
             cv2.polylines(image, [np.reshape(box, (-1, 1, 2))], True, (0, 0, 255))
     target_gaussian_heatmap_color = imgproc.cvt2HeatmapImg(region_scores / 255)
     target_gaussian_affinity_heatmap_color = imgproc.cvt2HeatmapImg(affinity_scores / 255)
-    confidence_mask_gray = imgproc.cvt2HeatmapImg(confidence_mask / 255)
+    confidence_mask_gray = imgproc.cvt2HeatmapImg(confidence_mask)
 
     # overlay
     height, width, channel = image.shape
@@ -59,7 +58,6 @@ def saveInput(imagename, vis_dir, image, region_scores, affinity_scores, confide
     output = np.concatenate([gt_scores, confidence_mask_gray], axis=1)
 
     output = np.hstack([image, output])
-
     outpath = os.path.join(os.path.join(vis_dir, '{}/input'.format(str(0 // 100))),
                            "%s_input.jpg" % imagename)
     if not os.path.exists(os.path.dirname(outpath)):
@@ -84,7 +82,6 @@ def saveImage(imagename, vis_dir, image, bboxes, region_scores, affinity_scores,
     target_gaussian_affinity_heatmap_color = imgproc.cvt2HeatmapImg(affinity_scores / 255)
     confidence_mask_gray = imgproc.cvt2HeatmapImg(confidence_mask)
     # overlay
-
     height, width, channel = image.shape
     overlay_region = cv2.resize(target_gaussian_heatmap_color, (width, height))
     overlay_aff = cv2.resize(target_gaussian_affinity_heatmap_color, (width, height))
@@ -94,7 +91,6 @@ def saveImage(imagename, vis_dir, image, bboxes, region_scores, affinity_scores,
 
     heat_map = np.concatenate([overlay_region, overlay_aff], axis=1)
     output = np.concatenate([output_image, heat_map, confidence_mask_gray], axis=1)
-
     outpath = os.path.join(os.path.join(vis_dir, '{}/input'.format(str(0 // 100))), imagename)
     if not os.path.exists(os.path.dirname(outpath)):
         os.makedirs(os.path.dirname(outpath))

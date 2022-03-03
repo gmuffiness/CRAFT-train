@@ -33,8 +33,6 @@ class Trainer(object):
         self.synth_loader = self._get_synth_loader()
         self.icdar_loader = self._get_icdar_loader()
         self.net_param = self._get_load_param(gpu)
-        self.net = self.get_model()
-        print('Init model last parameters : {}'.format(self.net.module.conv_cls[-1].weight.reshape(2, -1)))
 
     def _get_synth_loader(self):
         # 나중에 따로 동작할 수 도 있을 것 같아서 분리 시켜 놓음
@@ -53,8 +51,7 @@ class Trainer(object):
         synth_sampler = torch.utils.data.distributed.DistributedSampler(synth_dataset)
         synth_loader = torch.utils.data.DataLoader(
             synth_dataset,
-            # batch_size=self.config.train.batch_size//5,
-            batch_size=1,
+            batch_size=self.config.train.batch_size//5,
             shuffle=False,
             num_workers=self.config.train.num_workers,
             sampler=synth_sampler,
@@ -125,22 +122,6 @@ class Trainer(object):
 
         return param
 
-    def get_model(self):
-        craft = CRAFT(pretrained=True, amp=self.config.train.amp)
-        # load model
-        if self.config.train.ckpt_path is not None:
-            craft.load_state_dict(copyStateDict(self.net_param["craft"]))
-
-        craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
-        torch.cuda.set_device(self.gpu)
-        craft = craft.cuda(self.gpu)
-        craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[self.gpu])
-
-        # craft = torch.nn.DataParallel(craft).cuda()
-
-        torch.backends.cudnn.benchmark = True
-        return craft
-
     def _adjust_learning_rate(self, optimizer, gamma, step, lr):
         """Sets the learning rate to the initial LR decayed by 10 at every
             specified step
@@ -165,7 +146,22 @@ class Trainer(object):
         trn_syn_loader = self.synth_loader
         batch_syn = iter(trn_syn_loader)
         trn_icdar_loader = self.icdar_loader
-        craft = self.net
+
+        # -------------------------------------------------------------------------------------------------------#
+        craft = CRAFT(pretrained=True, amp=self.config.train.amp)
+        # load model
+        if self.config.train.ckpt_path is not None:
+            craft.load_state_dict(copyStateDict(self.net_param["craft"]))
+
+        craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
+        torch.cuda.set_device(self.gpu)
+        craft = craft.cuda(self.gpu)
+        craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[self.gpu])
+
+        #craft = torch.nn.DataParallel(craft).cuda()
+
+        torch.backends.cudnn.benchmark = True
+        # ----------------------------------------------------------------------------------------------------------#
 
         optimizer = optim.Adam(
             craft.parameters(),
@@ -274,16 +270,12 @@ class Trainer(object):
                     loss.backward()
                     optimizer.step()
 
-                print('(AFTER update) Model last parameters : {}'.format(self.net.module.conv_cls[-1].weight.reshape(2, -1)))
-
                 end_time = time.time()
                 loss_value += loss.item()
                 batch_time += end_time - start_time
 
-
-                # if self.gpu == 0:
-                #     wandb.log({"SynthText Loss": loss.item()})
-
+                if self.gpu == 0:
+                    wandb.log({"SynthText Loss": loss.item()})
 
                 if train_step > 0 and train_step%5==0 and self.gpu == 0:
                     mean_loss = loss_value / 5
@@ -295,7 +287,8 @@ class Trainer(object):
                           "training_loss: {:.5f}, avg_batch_time: {:.5f}"
                           .format(time.strftime('%Y-%m-%d:%H:%M:%S',time.localtime(time.time())),
                                   train_step, whole_training_step, training_lr, mean_loss, avg_batch_time))
-                    # wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
+
+                    wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
 
                 if train_step % 50 == 0 and train_step != 0 and self.gpu == 0:
@@ -333,13 +326,13 @@ class Trainer(object):
                         save_param_path, self.config, evaluator, val_result_dir
                     )
 
-                    # wandb.log(
-                    #     {
-                    #         "ICDAR2013 Recall": np.round(metrics["recall"], 3),
-                    #         "ICDAR2013 Precision": np.round(metrics["precision"], 3),
-                    #         "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
-                    #     }
-                    # )
+                    wandb.log(
+                        {
+                            "ICDAR2013 Recall": np.round(metrics["recall"], 3),
+                            "ICDAR2013 Precision": np.round(metrics["precision"], 3),
+                            "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
+                        }
+                    )
 
                 train_step += 1
                 if train_step >= whole_training_step:
@@ -369,13 +362,13 @@ class Trainer(object):
             )
             metrics = main_eval(save_param_path, self.config, evaluator, val_result_dir)
 
-            # wandb.log(
-            #     {
-            #         "ICDAR2013 Recall": np.round(metrics["recall"], 3),
-            #         "ICDAR2013 Precision": np.round(metrics["precision"], 3),
-            #         "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
-            #     }
-            # )
+            wandb.log(
+                {
+                    "ICDAR2013 Recall": np.round(metrics["recall"], 3),
+                    "ICDAR2013 Precision": np.round(metrics["precision"], 3),
+                    "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
+                }
+            )
             wandb.finish()
 
 
@@ -389,7 +382,6 @@ def main():
 
 
 def main_worker(gpu, ngpus_per_node):
-
     parser = argparse.ArgumentParser(description="CRAFT IC15 Train")
     parser.add_argument("--yaml",
                         "--yaml_file_name",
@@ -419,7 +411,7 @@ def main_worker(gpu, ngpus_per_node):
 
     if gpu == 0:
         # Apply config to wandb
-        wandb.init(project="ocr_craft", entity="gmuffiness", name=args.yaml)
+        wandb.init(project="jm-test", entity="pingu", name=args.yaml)
         wandb.config.update(config)
         print("-"*20+" Options "+"-"*20)
         print(yaml.dump(config))
