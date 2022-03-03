@@ -82,8 +82,10 @@ class Trainer(object):
             gauss_init_size=self.config.train.data.gauss_init_size,
             gauss_sigma=self.config.train.data.gauss_sigma,
             enlarge_size=self.config.train.data.enlarge_size,
+            watershed_ver=self.config.train.data.watershed_version,
             aug=self.config.train.data.icdar_aug,
             vis_opt=self.config.train.data.vis_opt,
+            pseudo_vis_opt=self.config.train.data.pseudo_vis_opt,
         )
 
         icdar15_sampler = torch.utils.data.distributed.DistributedSampler(icdar15_dataset)
@@ -145,7 +147,6 @@ class Trainer(object):
         batch_syn = iter(trn_syn_loader)
         trn_icdar_loader = self.icdar_loader
 
-
         # -------------------------------------------------------------------------------------------------------#
         craft = CRAFT(pretrained=True, amp=self.config.train.amp)
         # load model
@@ -161,8 +162,6 @@ class Trainer(object):
 
         torch.backends.cudnn.benchmark = True
         # ----------------------------------------------------------------------------------------------------------#
-
-
 
         optimizer = optim.Adam(
             craft.parameters(),
@@ -275,10 +274,8 @@ class Trainer(object):
                 loss_value += loss.item()
                 batch_time += end_time - start_time
 
-
                 if self.gpu == 0:
                     wandb.log({"SynthText Loss": loss.item()})
-
 
                 if train_step > 0 and train_step%5==0 and self.gpu == 0:
                     mean_loss = loss_value / 5
@@ -290,6 +287,7 @@ class Trainer(object):
                           "training_loss: {:.5f}, avg_batch_time: {:.5f}"
                           .format(time.strftime('%Y-%m-%d:%H:%M:%S',time.localtime(time.time())),
                                   train_step, whole_training_step, training_lr, mean_loss, avg_batch_time))
+
                     wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
 
@@ -384,11 +382,10 @@ def main():
 
 
 def main_worker(gpu, ngpus_per_node):
-
-    parser = argparse.ArgumentParser(description="CRAFT SynthText Train")
+    parser = argparse.ArgumentParser(description="CRAFT IC15 Train")
     parser.add_argument("--yaml",
                         "--yaml_file_name",
-                        default="./exp/synthtext/",
+                        default="ic15_test6_26",
                         type=str,
                         help="Load configuration")
 
@@ -396,7 +393,7 @@ def main_worker(gpu, ngpus_per_node):
                         "--use ddp port",
                         default="2346",
                         type=str,
-                        help="Load configuration")
+                        help="Port number")
 
     args = parser.parse_args()
 
