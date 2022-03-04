@@ -58,8 +58,9 @@ def saveInput(imagename, vis_dir, image, region_scores, affinity_scores, confide
     output = np.concatenate([gt_scores, confidence_mask_gray], axis=1)
 
     output = np.hstack([image, output])
-    outpath = os.path.join(os.path.join(vis_dir, '{}/input'.format(str(0 // 100))),
-                           "%s_input.jpg" % imagename)
+    outpath = os.path.join(os.path.join('exp/viz', '{}/input'.format(str(0 // 100))),"%s_input.jpg" % imagename)
+
+
     if not os.path.exists(os.path.dirname(outpath)):
         os.makedirs(os.path.dirname(outpath))
     cv2.imwrite(outpath, output)
