@@ -1,5 +1,6 @@
 
 import math
+import numpy as np
 
 def distance(p1, p2, p):
     return abs(((p2[1] - p1[1]) * p[0] - (p2[0] - p1[0]) * p[1] + p2[0] * p1[1] - p2[1] * p1[0]) /
@@ -49,6 +50,7 @@ def mep(convex_polygon):
         # from each antipodal point, draw a parallel vector,
         # so ap1->ap2 is parallel to p1->p2
         #    aq1->aq2 is parallel to q1->q2
+        np.seterr(invalid='ignore')
         p1, p2 = convex_polygon[z1 % n], convex_polygon[(z1 + 1) % n]
         q1, q2 = convex_polygon[z2 % n], convex_polygon[(z2 + 1) % n]
         ap1, aq1 = convex_polygon[l[z1 % n]], convex_polygon[l[z2 % n]]

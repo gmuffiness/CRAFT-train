@@ -12,7 +12,7 @@ train:
   ckpt_path: "/nas/home/jihyokim/jm/CRAFT-Refactoring/config/shwang_test26_CRAFT_clr_amp_60000.pth"
   batch_size: 20
   st_iter: 0
-  end_iter: 60000
+  end_iter: 50000
   lr: 0.0001
   lr_decay: 15000
   gamma: 0.2
@@ -76,7 +76,7 @@ test:
   low_text: 0.5 # ICDAR2015 0.5
   link_threshold: 0.2 # ICDAR2013: 0.2
   cuda: True
-  canvas_size: 960
+  canvas_size: 2240
   mag_ratio: 1.5
   poly: False
 

@@ -293,7 +293,7 @@ class Trainer(object):
                     wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
 
-                if train_step % 50 == 0 and train_step != 0 and self.gpu == 0:
+                if train_step % 500 == 0 and train_step != 0 and self.gpu == 0:
 
                     print("Saving state, index:", train_step)
                     save_param_dic = {
