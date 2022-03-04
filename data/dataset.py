@@ -19,7 +19,7 @@ from data.imgaug import (
     random_scale,
     random_resize_crop,
 )
-from data.pseudo_label.make_charbox import make_pseudo_char_box
+from data.pseudo_label.make_charbox import PseudoCharBoxBuilder
 from utils.util import saveInput, saveImage
 
 
@@ -286,7 +286,7 @@ class ICDAR2015(Dataset):
             ):
                 new_imagename = img_name.split(".")[0] + "_" + str(i)
 
-            pseudo_char_bbox, confidence = make_pseudo_char_box(
+            pseudo_char_bbox, confidence = PseudoCharBoxBuilder.build_char_box(
                 self.net,
                 image,
                 word_bboxes[i],
@@ -347,6 +347,7 @@ class ICDAR2015(Dataset):
         img_path = os.path.join(self.img_dir, img_name)
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        img_h, img_w, _ = image.shape
 
         img_gt_box_path = os.path.join(
             self.img_gt_box_dir, "gt_%s.txt" % os.path.splitext(img_name)[0]
@@ -366,10 +367,10 @@ class ICDAR2015(Dataset):
         region_score = cv2.imread(saved_region_scores_path, cv2.IMREAD_GRAYSCALE)
         affinity_score = cv2.imread(saved_affi_scores_path, cv2.IMREAD_GRAYSCALE)
         region_score = cv2.resize(
-            region_score, (image.shape[1], image.shape[0])
+            region_score, (img_w, img_h)
         ).astype(np.float32)
         affinity_score = cv2.resize(
-            affinity_score, (image.shape[1], image.shape[0])
+            affinity_score, (img_w, img_h)
         ).astype(np.float32)
 
         saved_cf_mask_path = os.path.join(
@@ -377,12 +378,12 @@ class ICDAR2015(Dataset):
         )
         confidence_mask = cv2.imread(saved_cf_mask_path, cv2.IMREAD_GRAYSCALE)
         confidence_mask = cv2.resize(
-            confidence_mask, (image.shape[1], image.shape[0])
+            confidence_mask, (img_w, img_h)
         ).astype(np.float32)
-
+        import ipdb; ipdb.set_trace()
         # 기존 code 중 아래 random_crop에서 쓰이게 될 character bboxes 형식을 맞춰주기 위해, word bboxes를 1개의 character씩 담긴 bboxes로 만들어 줌
         word_level_char_bbox = []
-        trunc_mask = np.zeros([image.shape[0], image.shape[1]])
+        trunc_mask = np.zeros([img_h, img_w])
         for i in range(len(word_bboxes)):
             cv2.fillPoly(trunc_mask, [np.int32(word_bboxes[i])], 1)
             if (word_bboxes[i] < 0).sum() > 0:
