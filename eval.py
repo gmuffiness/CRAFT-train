@@ -13,7 +13,6 @@ import yaml
 
 from config.load_config import load_yaml, DotDict
 from model.craft import CRAFT
-from model.craft_resnet import UNetWithResnet50Encoder, UNetWithResnet50Encoder_deep
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils.inference_boxes import (
     test_net,
@@ -231,15 +230,7 @@ def main(model_path, config, evaluator, result_dir, viz=True):
     test_folder_name = config.test.test_data_dir.split("/")[-2].lower()
 
     # load model
-    if config.train.backbone == "craft":
-        model = CRAFT()  # initialize
-    elif config.train.backbone == "resnet":
-        model = UNetWithResnet50Encoder()
-    elif config.train.backbone == "resnet_deep":
-        model = UNetWithResnet50Encoder_deep()
-    else:
-        print("Failed to load model")
-
+    model = CRAFT()  # initialize
     print("Loading weights from checkpoint (" + model_path + ")")
     net_param = torch.load(model_path)
     model.load_state_dict(copyStateDict(net_param["craft"]))
@@ -248,7 +239,6 @@ def main(model_path, config, evaluator, result_dir, viz=True):
         model = model.cuda()
         model = torch.nn.DataParallel(model)
         cudnn.benchmark = False
-
 
     model.eval()
     # ------------------------------------------------------------------------------------------------------------------#
