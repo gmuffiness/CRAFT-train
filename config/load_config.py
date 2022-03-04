@@ -35,6 +35,3 @@ class DotDict(dict):
             except KeyError:
                 return default
         return super().get(k, default=default)
-
-#cfg = load_yaml("default.yaml")
-#cfg = DotDict(cfg)

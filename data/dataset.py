@@ -22,7 +22,7 @@ from data.imgaug import (
     random_scale,
     random_resize_crop,
 )
-from data.pointClockOrder import mep
+from data.pseudo_label.make_charbox import make_pseudo_char_box
 from utils.util import saveInput, saveImage
 
 
@@ -290,7 +290,6 @@ class SynthTextDataSet(Dataset):
         aug,
         vis_opt,
     ):
-
         self.output_size = output_size
         self.data_dir = data_dir
         self.saved_gt_dir = saved_gt_dir
@@ -497,24 +496,8 @@ class SynthTextDataSet(Dataset):
                 words,
             ) = self.load_saved_gt(index)
 
-        # if self.logging:
-        #     saveImage(self.img_names[index][0], image.copy(), word_level_char_bbox.copy(),
-        #               region_score.copy(), affinity_score.copy(), confidence_mask.copy())
-
-        image, region_score, affinity_score, confidence_mask = self.augment_image(
-            image, region_score, affinity_score, confidence_mask, word_level_char_bbox
-        )
-
-        # if self.logging:
-        #     saveInput(
-        #         self.img_names[index][0],
-        #         image,
-        #         region_score,
-        #         affinity_score,
-        #         confidence_mask,
-        #     )
-
-        # self.logging = False
+        image, region_score, affinity_score, confidence_mask = \
+            self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
 
         region_score = self.resize_to_half(region_score)
         affinity_score = self.resize_to_half(affinity_score)
@@ -533,28 +516,25 @@ class SynthTextDataSet(Dataset):
         return image, region_score, affinity_score, confidence_mask
 
 
+
 class ICDAR2015(Dataset):
-    def __init__(self, output_size, data_dir, saved_gt_dir, gauss_init_size, gauss_sigma, enlarge_size, aug,
-                 vis_opt):
+    def __init__(self, net, output_size, data_dir, saved_gt_dir, gauss_init_size, gauss_sigma, enlarge_size,
+                 watershed_ver, aug, vis_opt, pseudo_vis_opt):
 
-        # self.net = net
-        # self.net.eval()
-        # self.net = 0
-
+        self.net = net
         self.output_size = output_size
         self.data_dir = data_dir
         self.saved_gt_dir = saved_gt_dir
         self.gaussian_builder = GaussianBuilder(gauss_init_size, gauss_sigma, enlarge_size)
+        self.watershed_ver = watershed_ver
         self.aug = aug
         self.vis_opt = vis_opt
-        self.vis_index = [189, 41, 723, 251, 232, 115, 634, 951, 247, 25, 400, 704, 619, 305, 423, 20, 31]
-
+        self.pseudo_vis_opt = pseudo_vis_opt
+        # self.vis_index = [189, 41, 723, 251, 232, 115, 634, 951, 247, 25, 400, 704, 619, 305, 423, 20, 31]
+        self.vis_index = list(range(1000))
         self.img_dir = os.path.join(data_dir, 'ch4_training_images')
         self.img_gt_box_dir = os.path.join(data_dir, 'ch4_training_localization_transcription_gt')
-        self.image_names = os.listdir(self.img_dir)
-
-    def get_img_name(self, index):
-        return self.image_names[index]
+        self.img_names = os.listdir(self.img_dir)
 
     def load_img_gt_box(self, img_gt_box_path):
         lines = open(img_gt_box_path, encoding='utf-8').readlines()
@@ -572,50 +552,153 @@ class ICDAR2015(Dataset):
                 words.append('###')
                 word_bboxes.append(box_points)
                 continue
-
-            # TODO: 좌표 보정 과정으로 보이는데, 어떤 점이 달라지는 지 확인
-            area, p0, p3, p2, p1, _, _ = mep(box_points)
-
-            bbox = np.array([p0, p1, p2, p3])
-
-            distance = 10000000
-            index = 0
-            for i in range(4):
-                d = np.linalg.norm(box_points[0] - bbox[i])
-                if distance > d:
-                    index = i
-                    distance = d
-            new_box = []
-            for i in range(index, index + 4):
-                new_box.append(bbox[i % 4])
-            new_box = np.array(new_box)
-            word_bboxes.append(np.array(new_box))
+            word_bboxes.append(np.array(box_points).astype(np.float64))
             words.append(word)
         return word_bboxes, words
 
-    def crop_image_by_bbox(self, image, box):
+    def get_confidence_by_contour(self, image, region_score, word_bbox, word, new_imagename, vis=False):
 
-        w = (int)(np.linalg.norm(box[0] - box[1]))
-        h = (int)(np.linalg.norm(box[0] - box[3]))
-        width = w
-        height = h
-        if h > w * 1.5:
-            width = h
-            height = w
-            M = cv2.getPerspectiveTransform(np.float32(box),
-                                            np.float32(
-                                                np.array([[width, 0], [width, height], [0, height], [0, 0]])))
+        word_image, _ = self.crop_image_by_bbox(image, word_bbox)
+        word_region_score, MM = self.crop_image_by_bbox(region_score, word_bbox)
+
+        real_word_without_space = word.replace('\s', '')
+        real_char_nums = len(real_word_without_space)
+        input = word_region_score.copy()
+        # 왜 64로 scale 조절을 하는 걸까?? --> https://github.com/clovaai/CRAFT-pytorch/issues/18
+        scale = 64.0 / input.shape[0]
+        input = cv2.resize(input, None, fx=scale, fy=scale)
+
+        ret, binary = cv2.threshold(input, 0.6 * 255, 255, cv2.THRESH_BINARY)
+        binary = binary.astype(np.uint8)
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+
+        confidence = self.get_confidence(real_char_nums, len(contours))
+
+        if confidence <= 0.5:  # confidence 값들이 낮은 경우, confidence 0.5
+            confidence = 0.5
+
+        if vis:
+            word_image = cv2.resize(word_image, None, fx=scale, fy=scale)
+            word_region_score = cv2.resize(word_region_score, None, fx=scale, fy=scale)
+            word_region_score = cv2.applyColorMap(np.uint8(word_region_score), cv2.COLORMAP_JET)
+
+            word_region_score = word_region_score.copy()
+            binary = binary.copy()
+            word_region_score = cv2.cvtColor(word_region_score, cv2.COLOR_BGR2RGB)
+            binary = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
+            # import ipdb; ipdb.set_trace()
+            vis_result = np.hstack([word_image, word_region_score, binary])
+            cv2.imwrite(f'/nas/home/gmuffiness/workspace/ocr_related/daintlab-CRAFT-Reimplementation/craft_jm/results_dir/exp_official_craft_supervision_v1.2/contour_sample/{new_imagename}_{confidence}.jpg', vis_result)
+        return confidence
+
+
+    def load_image_gt_and_confidence_mask(self, index):
+        img_name = self.img_names[index]
+        img_path = os.path.join(self.img_dir, img_name)
+        image = cv2.imread(img_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        img_gt_box_path = os.path.join(self.img_gt_box_dir, "gt_%s.txt" % os.path.splitext(img_name)[0])
+        word_bboxes, words = self.load_img_gt_box(img_gt_box_path)
+        word_bboxes = np.float32(word_bboxes)
+        confidence_mask = np.ones((image.shape[0], image.shape[1]), np.float32)
+
+        word_level_char_bbox = []
+        new_words = []
+        new_imagename = ''
+
+        if len(word_bboxes) == 0:
+            return image, word_level_char_bbox, new_words, confidence_mask
+
+        for i in range(len(word_bboxes)):
+
+            if self.pseudo_vis_opt and int(img_name.split('.')[0].split('_')[1]) in self.vis_index:
+                new_imagename = img_name.split('.')[0] + '_' + str(i)
+
+            pseudo_char_bbox, confidence = make_pseudo_char_box(self.net,
+                                                                image,
+                                                                word_bboxes[i],
+                                                                words[i],
+                                                                self.watershed_ver,
+                                                                pseudo_vis_opt=self.pseudo_vis_opt,
+                                                                img_name=new_imagename)
+
+            # TODO: fill confidence mask 할 때, 더 낮은 값이 들어가도록 수정?
+            if words[i] == '###' or len(words[i].strip()) == 0:
+                cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], (0))
+                continue
+            cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], confidence)
+            new_words.append(words[i])
+            word_level_char_bbox.append(pseudo_char_bbox)
+
+        # TODO: new_words랑 words랑 다른지 확인
+
+        return image, word_level_char_bbox, new_words, confidence_mask
+
+
+    def load_image_gt_and_saved_confidence_mask(self, index):
+        pass
+        #-------------------------------------------------------------------------------------#
+
+        # To make confidence_mask : 처음에만 실행될, save 할 confidence mask를 만드는 과정
+
+        # confidence_mask = np.ones((image.shape[0], image.shape[1]), np.float32)
+        #
+        # confidences = []
+        # new_imagename = ''
+        #
+        # if len(word_bboxes) > 0:
+        #     for i in range(len(word_bboxes)):
+        #
+        #         if words[i] == '###' or len(words[i].strip()) == 0:
+        #             cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], (0))
+        #             continue
+        #         assert words[i] != '###' and len(words[i].strip()) != 0
+        #
+        #
+        #         self.pseudo_vis_opt = False
+        #         if int(img_name.split('.')[0].split('_')[1]) in self.vis_index :
+        #             self.pseudo_vis_opt = True
+        #             new_imagename = img_name.split('.')[0] +'_'+str(i)
+        #
+        #         query_idx = int(self.img_names[index].split('.')[0].split('_')[1])
+        #         saved_region_scores_path = os.path.join(self.saved_gt_dir, f'res_img_{query_idx}_region.jpg')
+        #         # import ipdb; ipdb.set_trace()
+        #         region_score = cv2.imread(saved_region_scores_path, cv2.IMREAD_GRAYSCALE)
+        #         region_score = cv2.resize(region_score, (image.shape[1], image.shape[0])).astype(np.float32)
+        #
+        #         confidence = self.get_confidence_by_contour(image, region_score, word_bboxes[i], words[i], new_imagename, self.pseudo_vis_opt)
+        #         confidences.append(confidence)
+        #         cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], (confidence))
+        #
+        # return image, word_bboxes, confidence_mask, confidences
+
+    # Save confidence_mask
+    def save_confidence_mask(self, query_idx, confidence_mask):
+        confidence_mask_copy = (confidence_mask * 255).astype(np.uint8)
+        confidence_mask_copy = cv2.applyColorMap(confidence_mask_copy, cv2.COLORMAP_JET)
+        cv2.imwrite(os.path.join(self.saved_gt_dir, f'res_img_{query_idx}_cf_mask_jet_thresh_0.6.jpg'), confidence_mask_copy)
+        cv2.imwrite(os.path.join(self.saved_gt_dir, f'res_img_{query_idx}_cf_mask_thresh_0.6.jpg'), confidence_mask)
+
+    def make_pseudo_gt(self, index):
+        image, word_level_char_bbox, words, confidence_mask = self.load_image_gt_and_confidence_mask(index)
+        img_h, img_w, _ = image.shape
+
+        if len(word_level_char_bbox) > 0:
+            region_score = self.gaussian_builder.generate_region(img_h, img_w, word_level_char_bbox)
+            affinity_score, _ = self.gaussian_builder.generate_affinity(img_h, img_w, word_level_char_bbox)
         else:
-            M = cv2.getPerspectiveTransform(np.float32(box),
-                                            np.float32(
-                                                np.array([[0, 0], [width, 0], [width, height], [0, height]])))
+            region_score = np.zeros((image.shape[0], image.shape[1]), dtype=np.float32)
+            affinity_score = np.zeros((image.shape[0], image.shape[1]), dtype=np.float32)
 
-        warped = cv2.warpPerspective(image, M, (width, height))
-        return warped, M
+        if int(self.img_names[index].split('.')[0].split('_')[1]) in self.vis_index:
+            self.vis_opt = True
+
+        return image, region_score, affinity_score, confidence_mask, word_level_char_bbox, words
 
 
     def load_saved_gt(self, index):
-        img_name = self.image_names[index]
+        img_name = self.img_names[index]
         img_path = os.path.join(self.img_dir, img_name)
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -624,13 +707,13 @@ class ICDAR2015(Dataset):
         word_bboxes, words = self.load_img_gt_box(img_gt_box_path)
         word_bboxes = np.float32(word_bboxes)
 
-        query_idx = int(self.get_img_name(index).split('.')[0].split('_')[1])
+        query_idx = int(self.img_names[index].split('.')[0].split('_')[1])
+
         # use official CRAFT model's output as teacher (to make pseudo-label)
         saved_region_scores_path = os.path.join(self.saved_gt_dir, f'res_img_{query_idx}_region.jpg')
         saved_affi_scores_path = os.path.join(self.saved_gt_dir, f'res_img_{query_idx}_affi.jpg')
         region_score = cv2.imread(saved_region_scores_path, cv2.IMREAD_GRAYSCALE)
         affinity_score = cv2.imread(saved_affi_scores_path, cv2.IMREAD_GRAYSCALE)
-
         region_score = cv2.resize(region_score, (image.shape[1], image.shape[0])).astype(np.float32)
         affinity_score = cv2.resize(affinity_score, (image.shape[1], image.shape[0])).astype(np.float32)
 
@@ -638,9 +721,7 @@ class ICDAR2015(Dataset):
         confidence_mask = cv2.imread(saved_cf_mask_path, cv2.IMREAD_GRAYSCALE)
         confidence_mask = cv2.resize(confidence_mask, (image.shape[1], image.shape[0])).astype(np.float32)
 
-        # 기존 code 중 아래 random_crop에서 쓰이게 될 character bboxes 형식을 맞춰주기 위해,
-        # word bboxes를 1개의 character씩 담긴 bboxes로 만들어 줌
-
+        # 기존 code 중 아래 random_crop에서 쓰이게 될 character bboxes 형식을 맞춰주기 위해, word bboxes를 1개의 character씩 담긴 bboxes로 만들어 줌
         word_level_char_bbox = []
         trunc_mask = np.zeros([image.shape[0], image.shape[1]])
         for i in range(len(word_bboxes)):
@@ -654,13 +735,17 @@ class ICDAR2015(Dataset):
         region_score = region_score * trunc_mask
         affinity_score = affinity_score * trunc_mask
 
-        # check minus coordinate
-        for cb in word_level_char_bbox:
-            if (cb < 0).astype('float32').sum() > 0:
-                import ipdb;
-                ipdb.set_trace()
+        #check minus coordinate
+        for cb in word_level_char_bbox :
+            if (cb < 0).astype('float32').sum() > 0 :
+                import ipdb;ipdb.set_trace()
                 print(query_idx)
 
+        if int(self.img_names[index].split('.')[0].split('_')[1]) in self.vis_index and \
+                self.img_names[index].split('_')[0] == 'img':
+            self.vis_opt = True
+
+        self.vis_opt = False
 
         return (
             image,
@@ -676,8 +761,7 @@ class ICDAR2015(Dataset):
         augment_targets = [image, region_score, affinity_score, confidence_mask]
 
         if self.aug.random_scale.option:
-            augment_targets, word_level_char_bbox = random_scale(augment_targets, word_level_char_bbox,
-                                                                 self.aug.random_scale.range)
+            augment_targets, word_level_char_bbox = random_scale(augment_targets, word_level_char_bbox, self.aug.random_scale.range)
 
         if self.aug.random_rotate.option:
             augment_targets = random_rotate(augment_targets, self.aug.random_rotate.max_angle)
@@ -713,12 +797,18 @@ class ICDAR2015(Dataset):
         return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2))
 
     def __len__(self):
-        return len(self.image_names)
+        return len(self.img_names)
 
     def __getitem__(self, index):
-
         if self.saved_gt_dir is None:
-            pass
+            (
+                image,
+                region_score,
+                affinity_score,
+                confidence_mask,
+                word_level_char_bbox,
+                words,
+            ) = self.make_pseudo_gt(index)
         else:
             (
                 image,
@@ -729,8 +819,26 @@ class ICDAR2015(Dataset):
                 words,
             ) = self.load_saved_gt(index)
 
-        image, region_score, affinity_score, confidence_mask = \
-            self.augment_image(image, region_score, affinity_score, confidence_mask, word_level_char_bbox)
+        # query_idx = int(self.img_names[index].split('.')[0].split('_')[1])
+        # print(self.vis_opt, query_idx)
+        # # NOTE : 임시 test용으로만 사용할 코드라, 이미지 저장할 폴더 경로 hard-coding 되어 있음.
+        # if self.vis_opt and query_idx in self.vis_index:
+        #     saveImage(self.img_names[index], '/nas/home/gmuffiness/result/debug', image.copy(), word_level_char_bbox.copy(),
+        #               region_score.copy(), affinity_score.copy(), confidence_mask.copy())
+        #
+        # image, region_score, affinity_score, confidence_mask = self.augment_image(
+        #     image, region_score, affinity_score, confidence_mask, word_level_char_bbox
+        # )
+        #
+        # if self.vis_opt and query_idx in self.vis_index:
+        #     saveInput(
+        #         self.img_names[index],
+        #         '/nas/home/gmuffiness/result/debug',
+        #         image,
+        #         region_score,
+        #         affinity_score,
+        #         confidence_mask,
+        #     )
 
         region_score = self.resize_to_half(region_score)
         affinity_score = self.resize_to_half(affinity_score)

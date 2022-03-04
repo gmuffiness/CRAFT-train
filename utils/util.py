@@ -8,8 +8,7 @@ import numpy as np
 
 from data import imgproc
 
-from config import config
-# from config.load_config import cfg
+from config.load_config import load_yaml, DotDict
 from utils import craft_utils
 
 
@@ -24,12 +23,17 @@ def copyStateDict(state_dict):
         new_state_dict[name] = v
     return new_state_dict
 
-def saveInput(imagename, image, region_scores, affinity_scores, confidence_mask):
+def saveInput(imagename, vis_dir, image, region_scores, affinity_scores, confidence_mask):
     image = np.uint8(image.copy())
     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
     boxes, polys = craft_utils.getDetBoxes(region_scores / 255, affinity_scores / 255, 0.85, 0.2, 0.5, False)
-    boxes = np.array(boxes, np.int32) * 2
+
+    if image.shape[0] / region_scores.shape[0] >= 2:
+        boxes = np.array(boxes, np.int32) * 2
+    else:
+        boxes = np.array(boxes, np.int32)
+
     if len(boxes) > 0:
         np.clip(boxes[:, :, 0], 0, image.shape[1])
         np.clip(boxes[:, :, 1], 0, image.shape[0])
@@ -37,7 +41,7 @@ def saveInput(imagename, image, region_scores, affinity_scores, confidence_mask)
             cv2.polylines(image, [np.reshape(box, (-1, 1, 2))], True, (0, 0, 255))
     target_gaussian_heatmap_color = imgproc.cvt2HeatmapImg(region_scores / 255)
     target_gaussian_affinity_heatmap_color = imgproc.cvt2HeatmapImg(affinity_scores / 255)
-    confidence_mask_gray = imgproc.cvt2HeatmapImg(confidence_mask / 255)
+    confidence_mask_gray = imgproc.cvt2HeatmapImg(confidence_mask)
 
     # overlay
     height, width, channel = image.shape
@@ -54,23 +58,22 @@ def saveInput(imagename, image, region_scores, affinity_scores, confidence_mask)
     output = np.concatenate([gt_scores, confidence_mask_gray], axis=1)
 
     output = np.hstack([image, output])
+    outpath = os.path.join(os.path.join('exp/viz', '{}/input'.format(str(0 // 100))),"%s_input.jpg" % imagename)
 
-    outpath = os.path.join(os.path.join('exp/viz', '{}/input'.format(str(config.ITER // 100))),
-                           "%s_input.jpg" % imagename)
-    #print(outpath)
+
     if not os.path.exists(os.path.dirname(outpath)):
         os.makedirs(os.path.dirname(outpath))
-
     cv2.imwrite(outpath, output)
+    print(f'Logging train input into {outpath}')
 
 
-def saveImage(imagename, image, bboxes, affinity_bboxes, region_scores, affinity_scores, confidence_mask):
+def saveImage(imagename, vis_dir, image, bboxes, region_scores, affinity_scores, confidence_mask):
     output_image = np.uint8(image.copy())
     output_image = cv2.cvtColor(output_image, cv2.COLOR_RGB2BGR)
     if len(bboxes) > 0:
-        affinity_bboxes = np.int32(affinity_bboxes)
-        for i in range(affinity_bboxes.shape[0]):
-            cv2.polylines(output_image, [np.reshape(affinity_bboxes[i], (-1, 1, 2))], True, (255, 0, 0))
+        # affinity_bboxes = np.int32(affinity_bboxes)
+        # for i in range(affinity_bboxes.shape[0]):
+        #     cv2.polylines(output_image, [np.reshape(affinity_bboxes[i], (-1, 1, 2))], True, (255, 0, 0))
         for i in range(len(bboxes)):
             _bboxes = np.int32(bboxes[i])
             for j in range(_bboxes.shape[0]):
@@ -89,13 +92,12 @@ def saveImage(imagename, image, bboxes, affinity_bboxes, region_scores, affinity
 
     heat_map = np.concatenate([overlay_region, overlay_aff], axis=1)
     output = np.concatenate([output_image, heat_map, confidence_mask_gray], axis=1)
-
-    outpath = os.path.join(os.path.join(config.RESULT_DIR, '{}/input'.format(str(config.ITER // 100))), imagename)
-    #print(outpath)
+    outpath = os.path.join(os.path.join(vis_dir, '{}/input'.format(str(0 // 100))), imagename)
     if not os.path.exists(os.path.dirname(outpath)):
         os.makedirs(os.path.dirname(outpath))
 
     cv2.imwrite(outpath, output)
+    print(f'Logging original image into {outpath}')
 
 
 def save_parser(args):
