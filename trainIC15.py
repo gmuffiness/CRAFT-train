@@ -30,6 +30,8 @@ class Trainer(object):
 
         self.config = config
         self.gpu = gpu
+        self.synth_loader = self._get_synth_loader()
+        self.icdar_loader = self._get_icdar_loader()
         self.net_param = self._get_load_param(gpu)
 
     def _get_synth_loader(self):
@@ -71,11 +73,9 @@ class Trainer(object):
 
         return synth_loader
 
-    def _get_icdar_loader(self, net):
-
+    def _get_icdar_loader(self):
 
         icdar15_dataset = ICDAR2015(
-            net=net,
             output_size=self.config.train.data.output_size,
             data_dir=self.config.data_dir.ic15,
             saved_gt_dir=self.config.data_dir.ic15_gt,
@@ -99,6 +99,15 @@ class Trainer(object):
             pin_memory=True,
         )
 
+        #dp
+        # icdar15_loader = torch.utils.data.DataLoader(
+        #     icdar15_dataset,
+        #     batch_size=self.config.train.batch_size,
+        #     shuffle=False,
+        #     num_workers=self.config.train.num_workers,
+        #     drop_last=False,
+        #     pin_memory=True,
+        # )
 
         return icdar15_loader
 
@@ -134,6 +143,9 @@ class Trainer(object):
 
     def train(self):
 
+        trn_syn_loader = self.synth_loader
+        batch_syn = iter(trn_syn_loader)
+        trn_icdar_loader = self.icdar_loader
 
         # -------------------------------------------------------------------------------------------------------#
         craft = CRAFT(pretrained=True, amp=self.config.train.amp)
@@ -149,12 +161,6 @@ class Trainer(object):
         #craft = torch.nn.DataParallel(craft).cuda()
 
         torch.backends.cudnn.benchmark = True
-        # ----------------------------------------------------------------------------------------------------------#
-
-        trn_syn_loader = self._get_synth_loader()
-        batch_syn = iter(trn_syn_loader)
-        trn_icdar_loader = self._get_icdar_loader(craft)
-
         # ----------------------------------------------------------------------------------------------------------#
 
         optimizer = optim.Adam(
@@ -285,7 +291,7 @@ class Trainer(object):
                     wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
 
-                if train_step % 500 == 0 and train_step != 0 and self.gpu == 0:
+                if train_step % 50 == 0 and train_step != 0 and self.gpu == 0:
 
                     print("Saving state, index:", train_step)
                     save_param_dic = {
