@@ -22,13 +22,10 @@ from data.imgaug import (
 from data.pseudo_label.watershed import exec_watershed_by_version
 
 class PseudoCharBoxBuilder:
-    def __init__(self, net, image, word_bbox, words, pseudo_vis_opt, img_name):
+    def __init__(self, net, watershed_ver, pseudo_vis_opt):
         self.net = net
-        self.image = image
-        self.word_bbox = word_bbox
-        self.words = words
+        self.watershed_ver = watershed_ver
         self.pseudo_vis_opt = pseudo_vis_opt
-        self.img_name = img_name
 
     def crop_image_by_bbox(self, image, box):
         w = (int)(np.linalg.norm(box[0] - box[1]))
@@ -215,9 +212,8 @@ class PseudoCharBoxBuilder:
         bboxes = np.array(bboxes, np.float32)
         return bboxes
 
-
-    def bulid_char_box(
-        self, net, image, word_bbox, word, watershed_ver, pseudo_vis_opt=False, img_name=""
+    def build_char_box(
+        self, image, word_bbox, word, img_name=""
     ):
 
         word_image, MM = self.crop_image_by_bbox(image, word_bbox)
@@ -228,7 +224,7 @@ class PseudoCharBoxBuilder:
         word_image = cv2.resize(word_image, None, fx=scale, fy=scale)
         word_img_h, word_img_w, _ = word_image.shape
 
-        scores, net = self.inference_word_box(net, word_image)
+        scores, net = self.inference_word_box(self.net, word_image)
         region_score = scores[0, :, :, 0].cpu().data.numpy()
         region_score = np.uint8(np.clip(region_score, 0, 1) * 255)
 
@@ -237,7 +233,7 @@ class PseudoCharBoxBuilder:
         region_score_rgb = cv2.cvtColor(region_score_rgb, cv2.COLOR_GRAY2RGB)
 
         pseudo_char_bbox, color_markers = exec_watershed_by_version(
-            watershed_ver, region_score_rgb, word_image, pseudo_vis_opt
+            self.watershed_ver, region_score_rgb, word_image, self.pseudo_vis_opt
         )
 
         if len(pseudo_char_bbox) > 0:
@@ -267,7 +263,7 @@ class PseudoCharBoxBuilder:
         else:
             bboxes = pseudo_char_bbox
 
-        if pseudo_vis_opt:
+        if self.pseudo_vis_opt:
             self.visualize_pseudo_label(
                 word_image, region_score, pseudo_char_bbox, bboxes, color_markers, img_name
             )

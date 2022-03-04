@@ -226,7 +226,11 @@ class ICDAR2015(Dataset):
         self.gaussian_builder = GaussianBuilder(
             gauss_init_size, gauss_sigma, enlarge_size
         )
-        self.watershed_ver = watershed_ver
+        self.pseudo_charbox_builder = PseudoCharBoxBuilder(
+                net,
+                watershed_ver,
+                pseudo_vis_opt
+        )
         self.aug = aug
         self.vis_opt = vis_opt
         self.pseudo_vis_opt = pseudo_vis_opt
@@ -272,11 +276,11 @@ class ICDAR2015(Dataset):
         confidence_mask = np.ones((image.shape[0], image.shape[1]), np.float32)
 
         word_level_char_bbox = []
-        new_words = []
+        do_care_words = []
         new_imagename = ""
 
         if len(word_bboxes) == 0:
-            return image, word_level_char_bbox, new_words, confidence_mask
+            return image, word_level_char_bbox, do_care_words, confidence_mask
 
         for i in range(len(word_bboxes)):
 
@@ -286,14 +290,11 @@ class ICDAR2015(Dataset):
             ):
                 new_imagename = img_name.split(".")[0] + "_" + str(i)
 
-            pseudo_char_bbox, confidence = PseudoCharBoxBuilder.build_char_box(
-                self.net,
+            pseudo_char_bbox, confidence = self.pseudo_charbox_builder.build_char_box(
                 image,
                 word_bboxes[i],
                 words[i],
-                self.watershed_ver,
-                pseudo_vis_opt=self.pseudo_vis_opt,
-                img_name=new_imagename,
+                img_name=new_imagename
             )
 
             # TODO: fill confidence mask 할 때, 더 낮은 값이 들어가도록 수정?
@@ -301,12 +302,9 @@ class ICDAR2015(Dataset):
                 cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], (0))
                 continue
             cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], confidence)
-            new_words.append(words[i])
+            do_care_words.append(words[i])
             word_level_char_bbox.append(pseudo_char_bbox)
-
-        # TODO: new_words랑 words랑 다른지 확인
-
-        return image, word_level_char_bbox, new_words, confidence_mask
+        return image, word_level_char_bbox, do_care_words, confidence_mask
 
     def make_pseudo_gt(self, index):
         (
@@ -377,11 +375,11 @@ class ICDAR2015(Dataset):
             self.saved_gt_dir, f"res_img_{query_idx}_cf_mask_thresh_0.6.jpg"
         )
         confidence_mask = cv2.imread(saved_cf_mask_path, cv2.IMREAD_GRAYSCALE)
+        confidence_mask = (confidence_mask.astype(np.float32) / 255)
         confidence_mask = cv2.resize(
             confidence_mask, (img_w, img_h)
-        ).astype(np.float32)
-        import ipdb; ipdb.set_trace()
-        # 기존 code 중 아래 random_crop에서 쓰이게 될 character bboxes 형식을 맞춰주기 위해, word bboxes를 1개의 character씩 담긴 bboxes로 만들어 줌
+        )
+
         word_level_char_bbox = []
         trunc_mask = np.zeros([img_h, img_w])
         for i in range(len(word_bboxes)):
@@ -394,22 +392,6 @@ class ICDAR2015(Dataset):
         trunc_mask = trunc_mask.astype(np.float32)
         region_score = region_score * trunc_mask
         affinity_score = affinity_score * trunc_mask
-
-        # check minus coordinate
-        for cb in word_level_char_bbox:
-            if (cb < 0).astype("float32").sum() > 0:
-                import ipdb
-
-                ipdb.set_trace()
-                print(query_idx)
-
-        if (
-            int(self.img_names[index].split(".")[0].split("_")[1]) in self.vis_index
-            and self.img_names[index].split("_")[0] == "img"
-        ):
-            self.vis_opt = True
-
-        self.vis_opt = False
 
         return (
             image,
@@ -498,7 +480,7 @@ class ICDAR2015(Dataset):
             ) = self.load_saved_gt(index)
 
         query_idx = int(self.img_names[index].split(".")[0].split("_")[1])
-        print(self.vis_opt, query_idx)
+
         # NOTE : 임시 test용으로만 사용할 코드라, 이미지 저장할 폴더 경로 hard-coding 되어 있음.
         if self.vis_opt and query_idx in self.vis_index:
             saveImage(

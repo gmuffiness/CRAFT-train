@@ -4,8 +4,8 @@ data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
   ic15: "/data/ICDAR2015/"
-#  ic15_gt: NULL
-  ic15_gt: "/data/ICDAR2015_official_supervision_v2/0"
+  ic15_gt: NULL
+#  ic15_gt: "/data/ICDAR2015_official_supervision_v3/0"
   ic13: "/data/ICDAR2013/"
 
 train:
@@ -24,7 +24,7 @@ train:
   n_min_neg: 1000
   data:
     vis_opt: True
-    pseudo_vis_opt: True
+    pseudo_vis_opt: False
     output_size: 768
     enlarge_size : 0.5
     gauss_init_size: 200
