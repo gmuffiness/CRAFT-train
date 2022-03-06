@@ -27,7 +27,7 @@ def saveInput(imagename, vis_dir, image, region_scores, affinity_scores, confide
     image = np.uint8(image.copy())
     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-    boxes, polys = craft_utils.getDetBoxes(region_scores / 255, affinity_scores / 255, 0.85, 0.2, 0.5, False)
+    boxes, polys = craft_utils.getDetBoxes(region_scores, affinity_scores, 0.85, 0.2, 0.5, False)
 
     if image.shape[0] / region_scores.shape[0] >= 2:
         boxes = np.array(boxes, np.int32) * 2
@@ -39,9 +39,10 @@ def saveInput(imagename, vis_dir, image, region_scores, affinity_scores, confide
         np.clip(boxes[:, :, 1], 0, image.shape[0])
         for box in boxes:
             cv2.polylines(image, [np.reshape(box, (-1, 1, 2))], True, (0, 0, 255))
-    target_gaussian_heatmap_color = imgproc.cvt2HeatmapImg(region_scores / 255)
-    target_gaussian_affinity_heatmap_color = imgproc.cvt2HeatmapImg(affinity_scores / 255)
+    target_gaussian_heatmap_color = imgproc.cvt2HeatmapImg(region_scores)
+    target_gaussian_affinity_heatmap_color = imgproc.cvt2HeatmapImg(affinity_scores)
     confidence_mask_gray = imgproc.cvt2HeatmapImg(confidence_mask)
+    # confidence_mask_gray = confidence_mask * 255
 
     # overlay
     height, width, channel = image.shape
@@ -53,13 +54,12 @@ def saveInput(imagename, vis_dir, image, region_scores, affinity_scores, confide
     overlay_aff = cv2.addWeighted(image, 0.4, overlay_aff, 0.7, 6)
 
     gt_scores = np.concatenate([overlay_region, overlay_aff], axis=1)
-    confidence_mask_gray = np.concatenate([np.zeros_like(confidence_mask_gray), confidence_mask_gray], axis=1)
+    # confidence_mask_gray = np.concatenate([confidence_mask_gray], axis=1)
 
     output = np.concatenate([gt_scores, confidence_mask_gray], axis=1)
 
     output = np.hstack([image, output])
-    outpath = os.path.join(os.path.join(vis_dir, '{}/input'.format(str(0 // 100))),
-                           "%s_input.jpg" % imagename)
+    outpath = os.path.join(vis_dir, "%s_input.jpg" % imagename)
     if not os.path.exists(os.path.dirname(outpath)):
         os.makedirs(os.path.dirname(outpath))
     cv2.imwrite(outpath, output)
@@ -78,8 +78,8 @@ def saveImage(imagename, vis_dir, image, bboxes, region_scores, affinity_scores,
             for j in range(_bboxes.shape[0]):
                 cv2.polylines(output_image, [np.reshape(_bboxes[j], (-1, 1, 2))], True, (0, 0, 255))
 
-    target_gaussian_heatmap_color = imgproc.cvt2HeatmapImg(region_scores / 255)
-    target_gaussian_affinity_heatmap_color = imgproc.cvt2HeatmapImg(affinity_scores / 255)
+    target_gaussian_heatmap_color = imgproc.cvt2HeatmapImg(region_scores)
+    target_gaussian_affinity_heatmap_color = imgproc.cvt2HeatmapImg(affinity_scores)
     confidence_mask_gray = imgproc.cvt2HeatmapImg(confidence_mask)
     # overlay
     height, width, channel = image.shape
@@ -91,7 +91,7 @@ def saveImage(imagename, vis_dir, image, bboxes, region_scores, affinity_scores,
 
     heat_map = np.concatenate([overlay_region, overlay_aff], axis=1)
     output = np.concatenate([output_image, heat_map, confidence_mask_gray], axis=1)
-    outpath = os.path.join(os.path.join(vis_dir, '{}/input'.format(str(0 // 100))), imagename)
+    outpath = os.path.join(vis_dir, imagename)
     if not os.path.exists(os.path.dirname(outpath)):
         os.makedirs(os.path.dirname(outpath))
 
