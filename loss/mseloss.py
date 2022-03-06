@@ -3,6 +3,15 @@ import torch.nn as nn
 import numpy as np
 
 
+class Loss(nn.Module):
+    def __init__(self):
+        super(Loss, self).__init__()
+
+    def forward(self, gt_region, gt_affinity, pred_region, pred_affinity, conf_map):
+        loss = torch.mean(((gt_region - pred_region).pow(2) + (gt_affinity - pred_affinity).pow(2)) * conf_map)
+        return loss
+
+
 class Maploss(nn.Module):
     def __init__(self, use_gpu=True):
 

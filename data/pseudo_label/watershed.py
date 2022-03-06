@@ -137,7 +137,7 @@ def watershed_v2(region_score, input_img, pseudo_vis_opt):
 def watershed_v3(region_score, input_img, pseudo_vis_opt):
 
     if region_score.max() < 255 * 0.5:
-        return np.array([], dtype=np.uint8), np.zeros(region_score.shape, np.uint8)
+        return np.array([], dtype=np.float32), np.zeros(region_score.shape, dtype=np.uint8)
 
     ori_input_img = input_img.copy()
     ori_region_score = region_score.copy()
@@ -252,12 +252,11 @@ def watershed_v3(region_score, input_img, pseudo_vis_opt):
              color_markers, region_score, input_img])
         cv2.imwrite('./results_dir/exp_v2.1/watershed/{}'.format(f'watershed_result_{random.random()}.png'), vis_result)
 
-    # import ipdb; ipdb.set_trace()
-    return np.array(boxes), color_markers
+    return np.array(boxes, dtype=np.float32), color_markers
 
 def exec_watershed_by_version(watershed_ver, bgr_region_scores, input, pseudo_vis_opt):
 
-    # 새로운 watershed version을 추가할 때마다, 아래 dict에 추가해줘야 함.
+    # TODO: 새로운 watershed version을 추가할 때마다, 아래 dict에 추가해줘야 함.
     # => 더 깔끔하게 할 수 없을까?
     func_name_map_dict = {
         2: watershed_v2,
