@@ -22,7 +22,6 @@ from data.dataset import SynthTextDataSet
 from eval import main as main_eval
 from loss.mseloss import Maploss, Maploss_v2, Maploss_v3
 from model.craft import CRAFT
-from model.craft_resnet import UNetWithResnet50Encoder, UNetWithResnet50Encoder_deep
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils.util import copyStateDict, save_parser
 
@@ -96,14 +95,7 @@ class Trainer(object):
 
         trn_loader = self.synth_loader
         # -------------------------------------------------------------------------------------------------------#
-
-        if self.config.train.backbone == "resnet":
-            craft = UNetWithResnet50Encoder(pretrained=True, amp=self.config.train.amp)
-        elif self.config.train.backbone == "resnet_deep":
-            craft = UNetWithResnet50Encoder_deep(pretrained=True, amp=self.config.train.amp)
-        else :
-            craft = CRAFT(pretrained=True, amp=self.config.train.amp)
-
+        craft = CRAFT(pretrained=True, amp=self.config.train.amp)
         # load model
         if self.config.train.ckpt_path is not None:
             craft.load_state_dict(copyStateDict(self.net_param["craft"]))
@@ -112,7 +104,7 @@ class Trainer(object):
         craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
         torch.cuda.set_device(self.gpu)
         craft = craft.cuda(self.gpu)
-        craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[self.gpu], find_unused_parameters=True)
+        craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[self.gpu])
 
 
 
@@ -183,7 +175,6 @@ class Trainer(object):
                         output, _ = craft(images)
                         out1 = output[:, :, :, 0]
                         out2 = output[:, :, :, 1]
-
 
                         loss = criterion(
                             region_image_label,

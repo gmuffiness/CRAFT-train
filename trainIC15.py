@@ -60,22 +60,12 @@ class Trainer(object):
         )
 
 
-        # #dp
-        # synth_loader = torch.utils.data.DataLoader(
-        #     synth_dataset,
-        #     batch_size=self.config.train.batch_size//5,
-        #     shuffle=False,
-        #     num_workers=self.config.train.num_workers,
-        #     drop_last=False,
-        #     pin_memory=True,
-        # )
-
-
         return synth_loader
 
-    def _get_icdar_loader(self):
+    def _get_icdar_loader(self, net):
 
         icdar15_dataset = ICDAR2015(
+            net=net,
             output_size=self.config.train.data.output_size,
             data_dir=self.config.data_dir.ic15,
             saved_gt_dir=self.config.data_dir.ic15_gt,
@@ -98,16 +88,6 @@ class Trainer(object):
             drop_last=False,
             pin_memory=True,
         )
-
-        #dp
-        # icdar15_loader = torch.utils.data.DataLoader(
-        #     icdar15_dataset,
-        #     batch_size=self.config.train.batch_size,
-        #     shuffle=False,
-        #     num_workers=self.config.train.num_workers,
-        #     drop_last=False,
-        #     pin_memory=True,
-        # )
 
         return icdar15_loader
 
@@ -143,10 +123,6 @@ class Trainer(object):
 
     def train(self):
 
-        trn_syn_loader = self.synth_loader
-        batch_syn = iter(trn_syn_loader)
-        trn_icdar_loader = self.icdar_loader
-
         # -------------------------------------------------------------------------------------------------------#
         craft = CRAFT(pretrained=True, amp=self.config.train.amp)
         # load model
@@ -163,6 +139,11 @@ class Trainer(object):
         torch.backends.cudnn.benchmark = True
         # ----------------------------------------------------------------------------------------------------------#
 
+        trn_syn_loader = self._get_synth_loader()
+        batch_syn = iter(trn_syn_loader)
+        trn_icdar_loader = self._get_icdar_loader(craft)
+
+        # ----------------------------------------------------------------------------------------------------------#
         optimizer = optim.Adam(
             craft.parameters(),
             lr=self.config.train.lr,
