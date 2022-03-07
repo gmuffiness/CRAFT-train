@@ -30,12 +30,11 @@ class Trainer(object):
 
         self.config = config
         self.gpu = gpu
-        self.synth_loader = self._get_synth_loader()
-        self.icdar_loader = self._get_icdar_loader()
         self.net_param = self._get_load_param(gpu)
 
     def _get_synth_loader(self):
         # 나중에 따로 동작할 수 도 있을 것 같아서 분리 시켜 놓음
+
 
         synth_dataset = SynthTextDataSet(
             output_size=self.config.train.data.output_size,
@@ -43,9 +42,11 @@ class Trainer(object):
             saved_gt_dir=self.config.data_dir.synthtext_gt,
             gauss_init_size=self.config.train.data.gauss_init_size,
             gauss_sigma=self.config.train.data.gauss_sigma,
-            enlarge_size=self.config.train.data.enlarge_size,
+            enlarge_region=self.config.train.data.enlarge_region,
+            enlarge_affinity=self.config.train.data.enlarge_affinity,
             aug=self.config.train.data.syn_aug,
-            vis_opt=self.config.train.data.vis_opt,
+            vis_test_dir=self.config.vis_test_dir,
+            vis_opt=self.config.train.data.vis_opt
         )
 
         synth_sampler = torch.utils.data.distributed.DistributedSampler(synth_dataset)
@@ -59,7 +60,6 @@ class Trainer(object):
             pin_memory=True,
         )
 
-
         return synth_loader
 
     def _get_icdar_loader(self, net):
@@ -71,9 +71,11 @@ class Trainer(object):
             saved_gt_dir=self.config.data_dir.ic15_gt,
             gauss_init_size=self.config.train.data.gauss_init_size,
             gauss_sigma=self.config.train.data.gauss_sigma,
-            enlarge_size=self.config.train.data.enlarge_size,
+            enlarge_region=self.config.train.data.enlarge_region,
+            enlarge_affinity=self.config.train.data.enlarge_affinity,
             watershed_ver=self.config.train.data.watershed_version,
             aug=self.config.train.data.icdar_aug,
+            vis_test_dir=self.config.vis_test_dir,
             vis_opt=self.config.train.data.vis_opt,
             pseudo_vis_opt=self.config.train.data.pseudo_vis_opt,
         )
@@ -133,8 +135,6 @@ class Trainer(object):
         torch.cuda.set_device(self.gpu)
         craft = craft.cuda(self.gpu)
         craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[self.gpu])
-
-        #craft = torch.nn.DataParallel(craft).cuda()
 
         torch.backends.cudnn.benchmark = True
         # ----------------------------------------------------------------------------------------------------------#
@@ -256,7 +256,8 @@ class Trainer(object):
                 batch_time += end_time - start_time
 
                 if self.gpu == 0:
-                    wandb.log({"SynthText Loss": loss.item()})
+                    #wandb.log({"SynthText Loss": loss.item()})
+                    pass
 
                 if train_step > 0 and train_step%5==0 and self.gpu == 0:
                     mean_loss = loss_value / 5
@@ -269,7 +270,7 @@ class Trainer(object):
                           .format(time.strftime('%Y-%m-%d:%H:%M:%S',time.localtime(time.time())),
                                   train_step, whole_training_step, training_lr, mean_loss, avg_batch_time))
 
-                    wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
+                    #wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
 
                 if train_step % 50 == 0 and train_step != 0 and self.gpu == 0:
@@ -307,13 +308,13 @@ class Trainer(object):
                         save_param_path, self.config, evaluator, val_result_dir
                     )
 
-                    wandb.log(
-                        {
-                            "ICDAR2013 Recall": np.round(metrics["recall"], 3),
-                            "ICDAR2013 Precision": np.round(metrics["precision"], 3),
-                            "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
-                        }
-                    )
+                    # wandb.log(
+                    #     {
+                    #         "ICDAR2013 Recall": np.round(metrics["recall"], 3),
+                    #         "ICDAR2013 Precision": np.round(metrics["precision"], 3),
+                    #         "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
+                    #     }
+                    # )
 
                 train_step += 1
                 if train_step >= whole_training_step:
@@ -343,14 +344,14 @@ class Trainer(object):
             )
             metrics = main_eval(save_param_path, self.config, evaluator, val_result_dir)
 
-            wandb.log(
-                {
-                    "ICDAR2013 Recall": np.round(metrics["recall"], 3),
-                    "ICDAR2013 Precision": np.round(metrics["precision"], 3),
-                    "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
-                }
-            )
-            wandb.finish()
+            # wandb.log(
+            #     {
+            #         "ICDAR2013 Recall": np.round(metrics["recall"], 3),
+            #         "ICDAR2013 Precision": np.round(metrics["precision"], 3),
+            #         "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
+            #     }
+            # )
+            # wandb.finish()
 
 
 def main():
@@ -392,8 +393,8 @@ def main_worker(gpu, ngpus_per_node):
 
     if gpu == 0:
         # Apply config to wandb
-        wandb.init(project="jm-test", entity="pingu", name=args.yaml)
-        wandb.config.update(config)
+        #wandb.init(project="craft-icdar", entity="woans0104", name=args.yaml)
+        #wandb.config.update(config)
         print("-"*20+" Options "+"-"*20)
         print(yaml.dump(config))
         print("-" * 40)
