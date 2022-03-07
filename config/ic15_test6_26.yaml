@@ -1,5 +1,5 @@
 results_dir: "./exp/"
-vis_test_dir: "/nas/home/gmuffiness/result/debug"
+vis_test_dir: "/nas/home/gmuffiness/result/vis_test_ic15"
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
@@ -26,7 +26,8 @@ train:
     vis_opt: True
     pseudo_vis_opt: False
     output_size: 768
-    enlarge_size : 0.5
+    enlarge_region : [0.5, 0.5] # x axis, y axis
+    enlarge_affinity: [0., 0.25]
     gauss_init_size: 200
     gauss_sigma: 40
     watershed_version: 3
