@@ -22,7 +22,6 @@ from data.imgaug import (
     random_scale,
     random_resize_crop,
 )
-from data.pseudo_label.make_charbox import PseudoCharBoxBuilder
 from utils.util import saveInput, saveImage
 
 
@@ -240,12 +239,13 @@ class SynthTextDataSet_kr(Dataset):
             image, region_score, affinity_score, confidence_mask, word_level_char_bbox
         )
 
+
         saveInput(
             self.img_names[index],
-            image,
-            region_score,
-            affinity_score,
-            confidence_mask,
+            image = image,
+            region_scores = region_score,
+            affinity_scores = affinity_score,
+            confidence_mask =confidence_mask
         )
 
         # if self.logging:

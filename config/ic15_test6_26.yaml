@@ -7,7 +7,6 @@ data_dir:
   ic15_gt: NULL
   #ic15_gt: "/data/ICDAR2015_official_supervision_v2/0"
 #  ic15_gt: "/data/ICDAR2015_official_supervision_v3/0"
-
   ic13: "/data/ICDAR2013/"
 
 train:

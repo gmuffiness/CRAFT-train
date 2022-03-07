@@ -14,7 +14,7 @@ from data import imgproc
 from data.gaussian import GaussianBuilder
 from data.imgaug import random_scale, random_rotate, random_crop_with_bbox_adapt_to_output_size, random_resize_crop, random_horizontal_flip
 from data.pointClockOrder import mep
-from data.pseudo_label.watershed import exec_watershed_by_version
+from data.pseudo_label.watershed1 import exec_watershed_by_version
 
 def crop_image_by_bbox(image, box):
     w = (int)(np.linalg.norm(box[0] - box[1]))

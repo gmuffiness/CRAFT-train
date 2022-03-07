@@ -23,7 +23,7 @@ def copyStateDict(state_dict):
         new_state_dict[name] = v
     return new_state_dict
 
-def saveInput(imagename, vis_dir, image, region_scores, affinity_scores, confidence_mask):
+def saveInput(imagename, image, region_scores, affinity_scores, confidence_mask):
     image = np.uint8(image.copy())
     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
