@@ -1,6 +1,5 @@
 import numpy as np
 import math
-import config.config
 
 def pointAngle(Apoint, Bpoint):
     angle = (Bpoint[1] - Apoint[1]) / ((Bpoint[0] - Apoint[0]) + 10e-8)
@@ -24,10 +23,10 @@ def sidePoint(Apoint, Bpoint, h, w, placehold, enlarge_size):
     angle = abs(math.atan(pointAngle(Apoint, Bpoint)))
     distance = pointDistance(Apoint, Bpoint)
 
-    halfIncreaseDistance = enlarge_size * distance
+    x_enlarge_size, y_enlarge_size = enlarge_size
 
-    XaxisIncreaseDistance = abs(math.cos(angle) * halfIncreaseDistance)
-    YaxisIncreaseDistance = abs(math.sin(angle) * halfIncreaseDistance)
+    XaxisIncreaseDistance = abs(math.cos(angle) * x_enlarge_size * distance)
+    YaxisIncreaseDistance = abs(math.sin(angle) * y_enlarge_size * distance)
 
     if placehold == 'leftTop':
         x1 = max(0, Apoint[0] - XaxisIncreaseDistance)
@@ -44,11 +43,8 @@ def sidePoint(Apoint, Bpoint, h, w, placehold, enlarge_size):
 
     return int(x1), int(y1)
 
-# 将box扩大1.5倍
 def enlargebox(box, h, w, enlarge_size):
 
-
-    # box = [Apoint, Bpoint, Cpoint, Dpoint]
     Apoint, Bpoint, Cpoint, Dpoint = box
     K1, B1 = lineBiasAndK(box[0], box[2])
     K2, B2 = lineBiasAndK(box[3], box[1])
