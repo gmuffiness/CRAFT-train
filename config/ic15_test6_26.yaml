@@ -1,30 +1,29 @@
 results_dir: "./exp/"
-vis_test_dir: "./exp/test"
+vis_test_dir: "/nas/home/gmuffiness/result/debug"
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
   ic15: "/data/ICDAR2015/"
   ic15_gt: NULL
-  #ic15_gt: "/data/ICDAR2015_official_supervision_v2/0"
 #  ic15_gt: "/data/ICDAR2015_official_supervision_v3/0"
   ic13: "/data/ICDAR2013/"
 
 train:
   ckpt_path: "/nas/home/jihyokim/jm/CRAFT-Refactoring/config/shwang_test26_CRAFT_clr_amp_60000.pth"
-  batch_size: 10
+  batch_size: 20
   st_iter: 0
-  end_iter: 50000
+  end_iter: 60000
   lr: 0.0001
   lr_decay: 15000
   gamma: 0.2
   weight_decay: 0.00001
-  num_workers: 0
+  num_workers: 4
   amp: True
   loss: 3
   neg_rto: 1
   n_min_neg: 1000
   data:
-    vis_opt: False
+    vis_opt: True
     pseudo_vis_opt: False
     output_size: 768
     enlarge_size : 0.5
@@ -79,6 +78,6 @@ test:
   low_text: 0.5 # ICDAR2015 0.5
   link_threshold: 0.2 # ICDAR2013: 0.2
   cuda: True
-  canvas_size: 2240
+  canvas_size: 960
   mag_ratio: 1.5
   poly: False
