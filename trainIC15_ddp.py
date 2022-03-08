@@ -24,6 +24,7 @@ from loss.mseloss import Maploss, Maploss_v2, Maploss_v3
 from model.craft import CRAFT
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils.util import copyStateDict, save_parser
+import utils.config as temp_config
 from utils.decorator_wraps import time_printer
 
 class Trainer(object):
@@ -62,7 +63,7 @@ class Trainer(object):
 
         return synth_loader
 
-    def _get_icdar_loader(self):
+    def _get_icdar_loader(self, craft):
 
         icdar15_dataset = ICDAR2015(
             output_size=self.config.train.data.output_size,
@@ -118,6 +119,7 @@ class Trainer(object):
     def _get_load_param(self, gpu):
 
         if self.config.train.ckpt_path is not None:
+            print(f'Load model checkpoint to gpu {gpu}.')
             map_location = {'cuda:%d' % 0: 'cuda:%d' % gpu}
             param = torch.load(self.config.train.ckpt_path, map_location=map_location)
         else:
@@ -146,6 +148,15 @@ class Trainer(object):
 
     def train(self):
 
+        # supervision model
+        supervision_model = CRAFT(pretrained=True, amp=self.config.train.amp)
+        # load model checkpoint
+        if self.config.train.ckpt_path is not None:
+            map_location = {'cuda:%d' % 0: 'cuda:%d' % self.gpu}
+            param = torch.load(self.config.train.ckpt_path, map_location=map_location)
+            supervision_model.load_state_dict(copyStateDict(param['craft']))
+
+
         # -------------------------------------------------------------------------------------------------------#
         craft = CRAFT(pretrained=True, amp=self.config.train.amp)
         # load model
@@ -160,7 +171,7 @@ class Trainer(object):
         torch.backends.cudnn.benchmark = True
         # ----------------------------------------------------------------------------------------------------------#
 
-        trn_syn_loader = self._get_synth_loader()
+        # trn_syn_loader = self._get_synth_loader()
         # batch_syn = iter(trn_syn_loader)
         # trn_icdar_loader = self._get_icdar_loader(craft)
         # trn_icdar_dataset = self._get_icdar_dataset()
@@ -179,7 +190,7 @@ class Trainer(object):
             vis_opt=self.config.train.data.vis_opt,
             pseudo_vis_opt=self.config.train.data.pseudo_vis_opt,
         )
-        trn_icdar_dataset.update_model(craft)
+        trn_icdar_dataset.update_model(supervision_model)
         trn_icdar_dataset.update_device(self.gpu)
 
         trn_icdar15_sampler = torch.utils.data.distributed.DistributedSampler(trn_icdar_dataset)
@@ -257,6 +268,7 @@ class Trainer(object):
                 # affinity_image_label = torch.cat((syn_affi_label, icdar_affi_label), 0)
                 # confidence_mask = torch.cat((syn_confidence_mask, icdar_confidence_mask), 0)
 
+                images = icdar_image
                 region_image_label = icdar_region_label
                 affinity_image_label = icdar_affi_label
                 confidence_mask = icdar_confidence_mask
@@ -308,8 +320,11 @@ class Trainer(object):
                 loss_value += loss.item()
                 batch_time += end_time - start_time
 
-                trn_icdar_dataset.update_model(craft)
-                if self.gpu == 0:
+                state_dict = craft.module.state_dict()
+                supervision_model.load_state_dict(state_dict)
+                trn_icdar_dataset.update_model(supervision_model)
+                if train_step > 0 and train_step%10==0 and self.gpu == 0:
+                    # print(f'After training model update GPU {self.gpu} : {craft.module.conv_cls[-1].weight.reshape(2, -1)}')
                     # wandb.log({"ICDAR2015 Loss": loss.item()})
                     pass
 
@@ -371,6 +386,7 @@ class Trainer(object):
                     )
 
                 train_step += 1
+                temp_config.ITER = train_step
                 if train_step >= whole_training_step:
                     break
 

@@ -1,5 +1,5 @@
 results_dir: "./exp/"
-vis_test_dir: "/nas/home/gmuffiness/result/vis_test_ic15"
+vis_test_dir: "/nas/home/gmuffiness/result/vis_test_train_icdar_with_gt"
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
@@ -50,7 +50,7 @@ train:
         contrast: 0.2
         saturation: 0.2
         hue: 0.2
-        option: True
+        option: False
     icdar_aug:
       random_scale:
         range: [ 1.0, 1.5, 2.0 ]

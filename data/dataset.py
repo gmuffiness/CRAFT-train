@@ -21,7 +21,7 @@ from data.imgaug import (
 )
 from data.pseudo_label.make_charbox import PseudoCharBoxBuilder
 from utils.util import saveInput, saveImage
-
+from utils.decorator_wraps import time_printer
 
 class SynthTextDataSet(Dataset):
     def __init__(
@@ -48,6 +48,7 @@ class SynthTextDataSet(Dataset):
         self.vis_test_dir = vis_test_dir
         self.vis_opt = vis_opt
 
+    # TODO: load data with generator will save more train preparing time?
     def load_data(self, bbox="char"):
 
         gt = scio.loadmat(os.path.join(self.data_dir, "gt.mat"))
@@ -201,7 +202,6 @@ class SynthTextDataSet(Dataset):
 class ICDAR2015(Dataset):
     def __init__(
         self,
-        net,
         output_size,
         data_dir,
         saved_gt_dir,
@@ -216,7 +216,6 @@ class ICDAR2015(Dataset):
         pseudo_vis_opt,
     ):
 
-        self.net = net
         self.output_size = output_size
         self.data_dir = data_dir
         self.saved_gt_dir = saved_gt_dir
@@ -224,19 +223,25 @@ class ICDAR2015(Dataset):
             gauss_init_size, gauss_sigma, enlarge_region, enlarge_affinity
         )
         self.pseudo_charbox_builder = PseudoCharBoxBuilder(
-            net, watershed_ver, vis_test_dir, pseudo_vis_opt, self.gaussian_builder
+            watershed_ver, vis_test_dir, pseudo_vis_opt, self.gaussian_builder
         )
         self.aug = aug
         self.vis_test_dir = vis_test_dir
         self.vis_opt = vis_opt
         self.pseudo_vis_opt = pseudo_vis_opt
-        # self.vis_index = [189, 41, 723, 251, 232, 115, 634, 951, 247, 25, 400, 704, 619, 305, 423, 20, 31]
-        self.vis_index = list(range(1000))
+        self.vis_index = [189, 41, 723, 251, 232, 115, 634, 951, 247, 25, 400, 704, 619, 305, 423, 20, 31]
+        # self.vis_index = list(range(1000))
         self.img_dir = os.path.join(data_dir, "ch4_training_images")
         self.img_gt_box_dir = os.path.join(
             data_dir, "ch4_training_localization_transcription_gt"
         )
         self.img_names = os.listdir(self.img_dir)
+
+    def update_model(self, net):
+        self.net = net
+
+    def update_device(self, gpu):
+        self.gpu = gpu
 
     def load_img_gt_box(self, img_gt_box_path):
         lines = open(img_gt_box_path, encoding="utf-8").readlines()
@@ -281,12 +286,18 @@ class ICDAR2015(Dataset):
                 continue
 
             pseudo_char_bbox, confidence = self.pseudo_charbox_builder.build_char_box(
-                image, word_bboxes[i], words[i], img_name=img_name
+                self.net, self.gpu, image, word_bboxes[i], words[i], img_name=img_name
             )
+            # pseudo_char_bbox, confidence = build_char_box(
+            #     self.net, image, word_bboxes[i], words[i], img_name=img_name
+            # )
+            # pseudo_char_bbox = []
+            # confidence=1.0
 
             cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], confidence)
             do_care_words.append(words[i])
             word_level_char_bbox.append(pseudo_char_bbox)
+
         return image, word_level_char_bbox, do_care_words, confidence_mask
 
     def make_pseudo_gt(self, index):
@@ -306,11 +317,12 @@ class ICDAR2015(Dataset):
         if len(word_level_char_bbox) == 0:
             region_score = np.zeros((img_h, img_w), dtype=np.float32)
             affinity_score = np.zeros((img_h, img_w), dtype=np.float32)
+            all_affinity_bbox = []
         else:
             region_score = self.gaussian_builder.generate_region(
                 img_h, img_w, word_level_char_bbox
             )
-            affinity_score, _ = self.gaussian_builder.generate_affinity(
+            affinity_score, all_affinity_bbox = self.gaussian_builder.generate_affinity(
                 img_h, img_w, word_level_char_bbox
             )
 
@@ -320,6 +332,7 @@ class ICDAR2015(Dataset):
             affinity_score,
             confidence_mask,
             word_level_char_bbox,
+            all_affinity_bbox,
             words,
         )
 
@@ -388,7 +401,6 @@ class ICDAR2015(Dataset):
     def augment_image(
         self, image, region_score, affinity_score, confidence_mask, word_level_char_bbox
     ):
-
         augment_targets = [image, region_score, affinity_score, confidence_mask]
 
         if self.aug.random_scale.option:
@@ -450,6 +462,7 @@ class ICDAR2015(Dataset):
                 affinity_score,
                 confidence_mask,
                 word_level_char_bbox,
+                all_affinity_bbox,
                 words,
             ) = self.make_pseudo_gt(index)
         else:
@@ -461,6 +474,7 @@ class ICDAR2015(Dataset):
                 word_level_char_bbox,
                 words,
             ) = self.load_saved_gt(index)
+            all_affinity_bbox = []
 
         query_idx = int(self.img_names[index].split(".")[0].split("_")[1])
 
@@ -470,6 +484,7 @@ class ICDAR2015(Dataset):
                 self.vis_test_dir,
                 image.copy(),
                 word_level_char_bbox.copy(),
+                all_affinity_bbox.copy(),
                 region_score.copy(),
                 affinity_score.copy(),
                 confidence_mask.copy(),

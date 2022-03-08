@@ -6,13 +6,13 @@ import torch
 
 from data import imgproc
 from data.pseudo_label.watershed import exec_watershed_by_version
+from utils.decorator_wraps import time_printer
 
 
 class PseudoCharBoxBuilder:
     def __init__(
-        self, net, watershed_ver, vis_test_dir, pseudo_vis_opt, gaussian_builder
+        self, watershed_ver, vis_test_dir, pseudo_vis_opt, gaussian_builder
     ):
-        self.net = net
         self.watershed_ver = watershed_ver
         self.vis_test_dir = vis_test_dir
         self.pseudo_vis_opt = pseudo_vis_opt
@@ -63,14 +63,19 @@ class PseudoCharBoxBuilder:
         warped = cv2.warpPerspective(image, M, (long_side, short_side))
         return warped, M
 
-    def inference_word_box(self, net, word_image):
+    def inference_word_box(self, net, gpu, word_image):
         # print(f'In GPU {torch.cuda.current_device()}')
         # print('Model last parameters : {}'.format(net.conv_cls[-1].weight.reshape(2, -1)))
 
         if net.training:
             net.eval()
 
-        net = net.cuda()
+        net = net.cuda(gpu)
+
+        if gpu == 0:
+            # print(f'In supervision model GPU {gpu} : {net.conv_cls[-1].weight.reshape(2, -1)}')
+            pass
+
         with torch.no_grad():
             word_img_torch = torch.from_numpy(
                 imgproc.normalizeMeanVariance(
@@ -82,9 +87,7 @@ class PseudoCharBoxBuilder:
             word_img_torch = word_img_torch.permute(2, 0, 1).unsqueeze(0)
             word_img_torch = word_img_torch.type(torch.FloatTensor).cuda()
             word_img_scores, _ = net(word_img_torch)
-
-        net.train()
-        return word_img_scores, net
+        return word_img_scores
 
     def visualize_pseudo_label(
         self,
@@ -188,7 +191,7 @@ class PseudoCharBoxBuilder:
         bboxes = np.array(bboxes, np.float32)
         return bboxes
 
-    def build_char_box(self, image, word_bbox, word, img_name=""):
+    def build_char_box(self, net, gpu, image, word_bbox, word, img_name=""):
         word_image, M = self.crop_image_by_bbox(image, word_bbox)
         real_word_without_space = word.replace("\s", "")
         real_char_len = len(real_word_without_space)
@@ -197,7 +200,7 @@ class PseudoCharBoxBuilder:
         word_image = cv2.resize(word_image, None, fx=scale, fy=scale)
         word_img_h, word_img_w, _ = word_image.shape
 
-        scores, net = self.inference_word_box(self.net, word_image)
+        scores = self.inference_word_box(net, gpu, word_image)
         region_score = scores[0, :, :, 0].cpu().data.numpy()
         region_score = np.uint8(np.clip(region_score, 0, 1) * 255)
 
@@ -214,8 +217,6 @@ class PseudoCharBoxBuilder:
             pseudo_char_bbox, region_score_rgb.shape
         )
         pseudo_char_bbox = self.exclude_small_char(pseudo_char_bbox)
-        # index = np.argsort(pseudo_char_bbox[:, 0, 0])
-        # pseudo_char_bbox = pseudo_char_bbox[index]
 
         confidence = self.get_confidence(real_char_len, len(pseudo_char_bbox))
 
@@ -234,6 +235,11 @@ class PseudoCharBoxBuilder:
                 color_markers,
                 img_name,
             )
+
+        if len(pseudo_char_bbox) != 0:
+            pseudo_char_bbox = np.array(pseudo_char_bbox)
+            index = np.argsort(pseudo_char_bbox[:, 0, 0])
+            pseudo_char_bbox = pseudo_char_bbox[index]
 
         pseudo_char_bbox /= scale
 
