@@ -16,7 +16,6 @@
 │   ├── craft.py
 │   └── vgg16_bn.py
 ├── utils
-│   ├── config.py
 │   ├── craft_utils.py
 │   ├── inference_boxes.py
 │   └── utils.py

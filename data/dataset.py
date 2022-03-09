@@ -303,7 +303,6 @@ class ICDAR2015(Dataset):
     def make_pseudo_gt(self, index):
         """
         Make region, affinity scores using pseudo character-level GT bounding box
-
         word_level_char_bbox's shape : [word_num, [char_num_in_one_word, 4, 2]]
         :rtype region_score: np.float32
         :rtype affinity_score: np.float32
@@ -339,7 +338,6 @@ class ICDAR2015(Dataset):
     def load_saved_gt(self, index):
         """
         Load pre-saved official CRAFT model's region, affinity scores to train IC15
-
         word_level_char_bbox's shape : [word_num, [char_num_in_one_word, 4, 2]]
         :rtype region_score: np.float32
         :rtype affinity_score: np.float32
