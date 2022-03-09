@@ -143,9 +143,8 @@ class GaussianBuilder(object):
         bl = (bbox_2[0:2].sum(0) + center_2) / 3
         tr = (bbox_2[2:4].sum(0) + center_2) / 3
         br = (bbox_1[2:4].sum(0) + center_1) / 3
-        bbox = np.array([tl, bl, tr, br]).astype(np.float32)
-
-        return bbox
+        affinity_box = np.array([tl, bl, tr, br]).astype(np.float32)
+        return affinity_box
 
     def generate_region(self, img_h, img_w, word_level_char_bbox):
 

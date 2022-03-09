@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image
 from torchvision.transforms.functional import resized_crop
 from torchvision.transforms import RandomResizedCrop
-
+from torchvision.transforms import InterpolationMode
 
 def random_scale(images, word_level_char_bbox, scale_range):
     scale = random.sample(scale_range, 1)[0]
@@ -30,7 +30,6 @@ def random_rotate(images, max_angle):
         images[i] = img_rotation
     return images
 
-
 def random_resize_crop(augment_targets, scale, ratio, size):
     # --------------------------------------------------------------------------------------------------------------#
     image, region_score, affinity_score, confidence_mask = augment_targets
@@ -45,7 +44,7 @@ def random_resize_crop(augment_targets, scale, ratio, size):
     image = resized_crop(image, i, j, h, w, size=(size, size))
     region_score = resized_crop(region_score, i, j, h, w, (size, size))
     affinity_score = resized_crop(affinity_score, i, j, h, w, (size, size))
-    confidence_mask = resized_crop(confidence_mask, i, j, h, w, (size, size))
+    confidence_mask = resized_crop(confidence_mask, i, j, h, w, (size, size), InterpolationMode.NEAREST)
 
     image = np.array(image)
     region_score = np.array(region_score)

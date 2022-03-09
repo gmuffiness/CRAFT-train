@@ -1,5 +1,6 @@
 results_dir: "./exp/"
 vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
+
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
@@ -50,7 +51,7 @@ train:
         contrast: 0.2
         saturation: 0.2
         hue: 0.2
-        option: True
+        option: False
     icdar_aug:
       random_scale:
         range: [ 1.0, 1.5, 2.0 ]

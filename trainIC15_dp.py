@@ -27,11 +27,10 @@ from utils.util import copyStateDict, save_parser
 from utils.decorator_wraps import time_printer
 
 class Trainer(object):
-    def __init__(self, config, gpu):
+    def __init__(self, config):
 
         self.config = config
-        self.gpu = gpu
-        self.net_param = self._get_load_param(gpu)
+        self.net_param = self._get_load_param()
 
     def _get_synth_loader(self):
         # 나중에 따로 동작할 수 도 있을 것 같아서 분리 시켜 놓음
@@ -62,7 +61,7 @@ class Trainer(object):
 
         return synth_loader
 
-    def _get_icdar_loader(self):
+    def _get_icdar_loader(self, craft):
 
         icdar15_dataset = ICDAR2015(
             output_size=self.config.train.data.output_size,
@@ -78,9 +77,6 @@ class Trainer(object):
             vis_opt=self.config.train.data.vis_opt,
             pseudo_vis_opt=self.config.train.data.pseudo_vis_opt,
         )
-
-        # icdar15_dataset.update_model(craft)
-        # icdar15_dataset.update_device(self.gpu)
 
         icdar15_sampler = torch.utils.data.distributed.DistributedSampler(icdar15_dataset)
         icdar15_loader = torch.utils.data.DataLoader(
@@ -115,11 +111,10 @@ class Trainer(object):
 
         return icdar15_dataset
 
-    def _get_load_param(self, gpu):
+    def _get_load_param(self):
 
         if self.config.train.ckpt_path is not None:
-            map_location = {'cuda:%d' % 0: 'cuda:%d' % gpu}
-            param = torch.load(self.config.train.ckpt_path, map_location=map_location)
+            param = torch.load(self.config.train.ckpt_path)
         else:
             param = None
 
@@ -147,23 +142,11 @@ class Trainer(object):
     def train(self):
 
         # -------------------------------------------------------------------------------------------------------#
-        craft = CRAFT(pretrained=True, amp=self.config.train.amp)
-        # load model
-        if self.config.train.ckpt_path is not None:
-            craft.load_state_dict(copyStateDict(self.net_param["craft"]))
 
-        craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
-        torch.cuda.set_device(self.gpu)
-        craft = craft.cuda(self.gpu)
-        craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[self.gpu])
-
-        torch.backends.cudnn.benchmark = True
-        # ----------------------------------------------------------------------------------------------------------#
-
-        trn_syn_loader = self._get_synth_loader()
-        # batch_syn = iter(trn_syn_loader)
-        # trn_icdar_loader = self._get_icdar_loader(craft)
-        # trn_icdar_dataset = self._get_icdar_dataset()
+        supervision_device = torch.device("cuda:0")
+        supervision_model = CRAFT(pretrained=True, amp=self.config.train.amp)
+        supervision_model.load_state_dict(copyStateDict(self.net_param["craft"]))
+        supervision_model.to(supervision_device)
 
         trn_icdar_dataset = ICDAR2015(
             output_size=self.config.train.data.output_size,
@@ -179,19 +162,32 @@ class Trainer(object):
             vis_opt=self.config.train.data.vis_opt,
             pseudo_vis_opt=self.config.train.data.pseudo_vis_opt,
         )
-        trn_icdar_dataset.update_model(craft)
-        trn_icdar_dataset.update_device(self.gpu)
 
-        trn_icdar15_sampler = torch.utils.data.distributed.DistributedSampler(trn_icdar_dataset)
+        trn_icdar_dataset.update_model(supervision_model)
+        trn_icdar_dataset.update_device(supervision_device)
+
         trn_icdar_loader = torch.utils.data.DataLoader(
             trn_icdar_dataset,
             batch_size=self.config.train.batch_size,
-            shuffle=False,
+            shuffle=True,
             num_workers=self.config.train.num_workers,
-            sampler=trn_icdar15_sampler,
             drop_last=False,
             pin_memory=False,
         )
+
+        craft = CRAFT(pretrained=True, amp=self.config.train.amp)
+        # load model
+        if self.config.train.ckpt_path is not None:
+            craft.load_state_dict(copyStateDict(self.net_param["craft"]))
+
+        craft = torch.nn.parallel.DataParallel(craft).cuda()
+        torch.backends.cudnn.benchmark = True
+        # ----------------------------------------------------------------------------------------------------------#
+
+        # trn_syn_loader = self._get_synth_loader()
+        # batch_syn = iter(trn_syn_loader)
+        # trn_icdar_loader = self._get_icdar_loader(craft)
+        # trn_icdar_dataset = self._get_icdar_dataset()
 
         # ----------------------------------------------------------------------------------------------------------#
         optimizer = optim.Adam(
@@ -257,6 +253,7 @@ class Trainer(object):
                 # affinity_image_label = torch.cat((syn_affi_label, icdar_affi_label), 0)
                 # confidence_mask = torch.cat((syn_confidence_mask, icdar_confidence_mask), 0)
 
+                images = icdar_image
                 region_image_label = icdar_region_label
                 affinity_image_label = icdar_affi_label
                 confidence_mask = icdar_confidence_mask
@@ -309,11 +306,9 @@ class Trainer(object):
                 batch_time += end_time - start_time
 
                 trn_icdar_dataset.update_model(craft)
-                if self.gpu == 0:
-                    # wandb.log({"ICDAR2015 Loss": loss.item()})
-                    pass
 
-                if train_step > 0 and train_step%5==0 and self.gpu == 0:
+
+                if train_step > 0 and train_step%5==0:
                     mean_loss = loss_value / 5
                     loss_value = 0
                     avg_batch_time = batch_time/5
@@ -327,7 +322,7 @@ class Trainer(object):
                     wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
 
-                if train_step % 500 == 0 and train_step != 0 and self.gpu == 0:
+                if train_step % 500 == 0 and train_step != 0:
 
                     print("Saving state, index:", train_step)
                     save_param_dic = {
@@ -375,49 +370,40 @@ class Trainer(object):
                     break
 
         # save last model
-        if self.gpu == 0:
-            save_param_dic = {
-                "iter": train_step,
-                "craft": craft.state_dict(),
-                "optimizer": optimizer.state_dict(),
-            }
+
+        save_param_dic = {
+            "iter": train_step,
+            "craft": craft.state_dict(),
+            "optimizer": optimizer.state_dict(),
+        }
+        save_param_path = (
+            self.config.results_dir + "/CRAFT_clr_" + repr(train_step) + ".pth"
+        )
+
+        if self.config.train.amp:
+            save_param_dic["scaler"] = scaler.state_dict()
             save_param_path = (
-                self.config.results_dir + "/CRAFT_clr_" + repr(train_step) + ".pth"
+                self.config.results_dir + "/CRAFT_clr_amp_" + repr(train_step) + ".pth"
             )
+        torch.save(save_param_dic, save_param_path)
 
-            if self.config.train.amp:
-                save_param_dic["scaler"] = scaler.state_dict()
-                save_param_path = (
-                    self.config.results_dir + "/CRAFT_clr_amp_" + repr(train_step) + ".pth"
-                )
-            torch.save(save_param_dic, save_param_path)
+        evaluator = DetectionIoUEvaluator()
+        val_result_dir = os.path.join(
+            self.config.results_dir, "{}".format(str(train_step))
+        )
+        metrics = main_eval(save_param_path, self.config, evaluator, val_result_dir)
 
-            evaluator = DetectionIoUEvaluator()
-            val_result_dir = os.path.join(
-                self.config.results_dir, "{}".format(str(train_step))
-            )
-            metrics = main_eval(save_param_path, self.config, evaluator, val_result_dir)
-
-            wandb.log(
-                {
-                    "ICDAR2015 Recall": np.round(metrics["recall"], 3),
-                    "ICDAR2015 Precision": np.round(metrics["precision"], 3),
-                    "ICDAR2015 F1-score": np.round(metrics["hmean"], 3),
-                }
-            )
-            wandb.finish()
+        wandb.log(
+            {
+                "ICDAR2015 Recall": np.round(metrics["recall"], 3),
+                "ICDAR2015 Precision": np.round(metrics["precision"], 3),
+                "ICDAR2015 F1-score": np.round(metrics["hmean"], 3),
+            }
+        )
+        wandb.finish()
 
 
-def main():
-
-    # Start train
-    ngpus_per_node = torch.cuda.device_count()
-    world_size = ngpus_per_node
-
-    torch.multiprocessing.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node,))
-
-
-def main_worker(gpu, ngpus_per_node):
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CRAFT IC15 Train")
     parser.add_argument("--yaml",
                         "--yaml_file_name",
@@ -433,47 +419,33 @@ def main_worker(gpu, ngpus_per_node):
 
     args = parser.parse_args()
 
-
-    torch.distributed.init_process_group(
-        backend='nccl',
-        init_method='tcp://127.0.0.1:' + args.port,
-        world_size=ngpus_per_node,
-        rank=gpu)
-
-
-
     # load configure
     config = load_yaml(args.yaml)
 
-    if gpu == 0:
-        # Apply config to wandb
-        wandb.init(project="craft-icdar", entity="gmuffiness", name=args.yaml)
-        wandb.config.update(config)
-        print("-"*20+" Options "+"-"*20)
-        print(yaml.dump(config))
-        print("-" * 40)
 
-        # Make result_dir
-        res_dir = os.path.join("exp", args.yaml)
-        config["results_dir"] = res_dir
-        if not os.path.exists(res_dir):
-            os.makedirs(res_dir)
+    # Apply config to wandb
+    wandb.init(project="craft-icdar", entity="gmuffiness", name=args.yaml)
+    wandb.config.update(config)
+    print("-" * 20 + " Options " + "-" * 20)
+    print(yaml.dump(config))
+    print("-" * 40)
 
-        # Duplicate yaml file to result_dir
-        shutil.copy(
-            "config/" + args.yaml + ".yaml", os.path.join(res_dir, args.yaml) + ".yaml"
-        )
+    # Make result_dir
+    res_dir = os.path.join("exp", args.yaml)
+    config["results_dir"] = res_dir
+    if not os.path.exists(res_dir):
+        os.makedirs(res_dir)
 
+    # Duplicate yaml file to result_dir
+    shutil.copy(
+        "config/" + args.yaml + ".yaml", os.path.join(res_dir, args.yaml) + ".yaml"
+    )
 
-
-    batch_size = int(config["train"]["batch_size"] / ngpus_per_node)
-    config["train"]["batch_size"] = batch_size
+    # batch_size = int(config["train"]["batch_size"] / ngpus_per_node)
+    # config["train"]["batch_size"] = batch_size
     config = DotDict(config)
 
     # Start train
-    trainer = Trainer(config, gpu)
+    trainer = Trainer(config)
     trainer.train()
 
-
-if __name__ == "__main__":
-    main()
