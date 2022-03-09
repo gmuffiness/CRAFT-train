@@ -32,10 +32,9 @@ class Trainer(object):
 
         self.config = config
         self.gpu = gpu
-        self.net_param = self._get_load_param(gpu)
+        self.net_param = self.get_load_param(gpu)
 
-    def _get_synth_loader(self):
-        # 나중에 따로 동작할 수 도 있을 것 같아서 분리 시켜 놓음
+    def get_synth_loader(self):
 
         synth_dataset = SynthTextDataSet(
             output_size=self.config.train.data.output_size,
@@ -63,41 +62,39 @@ class Trainer(object):
 
         return synth_loader
 
-    def _get_icdar_loader(self, craft):
-
-        icdar15_dataset = ICDAR2015(
-            output_size=self.config.train.data.output_size,
-            data_dir=self.config.data_dir.ic15,
-            saved_gt_dir=self.config.data_dir.ic15_gt,
-            gauss_init_size=self.config.train.data.gauss_init_size,
-            gauss_sigma=self.config.train.data.gauss_sigma,
-            enlarge_region=self.config.train.data.enlarge_region,
-            enlarge_affinity=self.config.train.data.enlarge_affinity,
-            watershed_ver=self.config.train.data.watershed_version,
-            aug=self.config.train.data.icdar_aug,
-            vis_test_dir=self.config.vis_test_dir,
-            vis_opt=self.config.train.data.vis_opt,
-            pseudo_vis_opt=self.config.train.data.pseudo_vis_opt,
-        )
-
-        # icdar15_dataset.update_model(craft)
-        # icdar15_dataset.update_device(self.gpu)
-
-        icdar15_sampler = torch.utils.data.distributed.DistributedSampler(icdar15_dataset)
-        icdar15_loader = torch.utils.data.DataLoader(
-            icdar15_dataset,
-            batch_size=self.config.train.batch_size,
-            shuffle=False,
-            num_workers=self.config.train.num_workers,
-            sampler=icdar15_sampler,
-            drop_last=False,
-            pin_memory=True,
-        )
-
-        return icdar15_loader
+    # def get_icdar_loader(self):
+    #
+    #     icdar15_dataset = ICDAR2015(
+    #         output_size=self.config.train.data.output_size,
+    #         data_dir=self.config.data_dir.ic15,
+    #         saved_gt_dir=self.config.data_dir.ic15_gt,
+    #         gauss_init_size=self.config.train.data.gauss_init_size,
+    #         gauss_sigma=self.config.train.data.gauss_sigma,
+    #         enlarge_region=self.config.train.data.enlarge_region,
+    #         enlarge_affinity=self.config.train.data.enlarge_affinity,
+    #         watershed_ver=self.config.train.data.watershed_version,
+    #         aug=self.config.train.data.icdar_aug,
+    #         vis_test_dir=self.config.vis_test_dir,
+    #         vis_opt=self.config.train.data.vis_opt,
+    #         pseudo_vis_opt=self.config.train.data.pseudo_vis_opt,
+    #     )
+    #
+    #
+    #     icdar15_sampler = torch.utils.data.distributed.DistributedSampler(icdar15_dataset)
+    #     icdar15_loader = torch.utils.data.DataLoader(
+    #         icdar15_dataset,
+    #         batch_size=self.config.train.batch_size,
+    #         shuffle=False,
+    #         num_workers=self.config.train.num_workers,
+    #         sampler=icdar15_sampler,
+    #         drop_last=False,
+    #         pin_memory=True,
+    #     )
+    #
+    #     return icdar15_loader
 
 
-    def _get_icdar_dataset(self):
+    def get_icdar_dataset(self):
 
         icdar15_dataset = ICDAR2015(
             output_size=self.config.train.data.output_size,
@@ -116,7 +113,7 @@ class Trainer(object):
 
         return icdar15_dataset
 
-    def _get_load_param(self, gpu):
+    def get_load_param(self, gpu):
 
         if self.config.train.ckpt_path is not None:
             print(f'Load model checkpoint to gpu {gpu}.')
@@ -127,7 +124,7 @@ class Trainer(object):
 
         return param
 
-    def _adjust_learning_rate(self, optimizer, gamma, step, lr):
+    def adjust_learning_rate(self, optimizer, gamma, step, lr):
         """Sets the learning rate to the initial LR decayed by 10 at every
             specified step
         # Adapted from PyTorch Imagenet example:
@@ -139,7 +136,7 @@ class Trainer(object):
             param_group["lr"] = lr
         return param_group["lr"]
 
-    def _get_loss(self):
+    def get_loss(self):
         if self.config.train.loss == 2:
             criterion = Maploss_v2()
         elif self.config.train.loss == 3:
@@ -165,31 +162,17 @@ class Trainer(object):
 
         craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
         torch.cuda.set_device(self.gpu)
-        craft = craft.cuda(self.gpu)
+        craft = craft.cuda()
         craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[self.gpu])
 
         torch.backends.cudnn.benchmark = True
         # ----------------------------------------------------------------------------------------------------------#
 
-        # trn_syn_loader = self._get_synth_loader()
-        # batch_syn = iter(trn_syn_loader)
-        # trn_icdar_loader = self._get_icdar_loader(craft)
-        # trn_icdar_dataset = self._get_icdar_dataset()
+        trn_syn_loader = self.get_synth_loader()
+        batch_syn = iter(trn_syn_loader)
 
-        trn_icdar_dataset = ICDAR2015(
-            output_size=self.config.train.data.output_size,
-            data_dir=self.config.data_dir.ic15,
-            saved_gt_dir=self.config.data_dir.ic15_gt,
-            gauss_init_size=self.config.train.data.gauss_init_size,
-            gauss_sigma=self.config.train.data.gauss_sigma,
-            enlarge_region=self.config.train.data.enlarge_region,
-            enlarge_affinity=self.config.train.data.enlarge_affinity,
-            watershed_ver=self.config.train.data.watershed_version,
-            aug=self.config.train.data.icdar_aug,
-            vis_test_dir=self.config.vis_test_dir,
-            vis_opt=self.config.train.data.vis_opt,
-            pseudo_vis_opt=self.config.train.data.pseudo_vis_opt,
-        )
+
+        trn_icdar_dataset = self.get_icdar_dataset()
         trn_icdar_dataset.update_model(supervision_model)
         trn_icdar_dataset.update_device(self.gpu)
 
@@ -229,7 +212,7 @@ class Trainer(object):
                 scaler.load_state_dict(copyStateDict(self.net_param["scaler"]))
 
         # loss
-        criterion = self._get_loss()
+        criterion = self.get_loss()
 
         # ------------------------------------------------------------------------------------------------------#
 
@@ -252,7 +235,7 @@ class Trainer(object):
                 craft.train()
                 if train_step > 0 and train_step % self.config.train.lr_decay == 0:
                     update_lr_rate_step += 1
-                    training_lr = self._adjust_learning_rate(
+                    training_lr = self.adjust_learning_rate(
                         optimizer,
                         self.config.train.gamma,
                         update_lr_rate_step,
@@ -260,18 +243,15 @@ class Trainer(object):
                     )
 
                 # syn image load
-                # syn_image, syn_region_label, syn_affi_label, syn_confidence_mask = next(batch_syn)
-                # images = torch.cat((syn_image, icdar_image), 0)
+                syn_image, syn_region_label, syn_affi_label, syn_confidence_mask = next(batch_syn)
+                images = torch.cat((syn_image, icdar_image), 0)
 
-                # cat syn & icdar image
-                # region_image_label = torch.cat((syn_region_label, icdar_region_label), 0)
-                # affinity_image_label = torch.cat((syn_affi_label, icdar_affi_label), 0)
-                # confidence_mask = torch.cat((syn_confidence_mask, icdar_confidence_mask), 0)
+                #cat syn & icdar image
+                region_image_label = torch.cat((syn_region_label, icdar_region_label), 0)
+                affinity_image_label = torch.cat((syn_affi_label, icdar_affi_label), 0)
+                confidence_mask = torch.cat((syn_confidence_mask, icdar_confidence_mask), 0)
 
-                images = icdar_image
-                region_image_label = icdar_region_label
-                affinity_image_label = icdar_affi_label
-                confidence_mask = icdar_confidence_mask
+
                 images = Variable(images).cuda()
                 region_image_label = Variable(region_image_label.type(torch.FloatTensor)).cuda()
                 affinity_image_label = Variable(affinity_image_label.type(torch.FloatTensor)).cuda()
@@ -323,6 +303,7 @@ class Trainer(object):
                 state_dict = craft.module.state_dict()
                 supervision_model.load_state_dict(state_dict)
                 trn_icdar_dataset.update_model(supervision_model)
+
                 if train_step > 0 and train_step%10==0 and self.gpu == 0:
                     # print(f'After training model update GPU {self.gpu} : {craft.module.conv_cls[-1].weight.reshape(2, -1)}')
                     # wandb.log({"ICDAR2015 Loss": loss.item()})
@@ -339,7 +320,7 @@ class Trainer(object):
                           .format(time.strftime('%Y-%m-%d:%H:%M:%S',time.localtime(time.time())),
                                   train_step, whole_training_step, training_lr, mean_loss, avg_batch_time))
 
-                    wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
+                    #wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
 
                 if train_step % 500 == 0 and train_step != 0 and self.gpu == 0:
@@ -376,14 +357,14 @@ class Trainer(object):
                     metrics = main_eval(
                         save_param_path, self.config, evaluator, val_result_dir
                     )
-
-                    wandb.log(
-                        {
-                            "ICDAR2015 Recall": np.round(metrics["recall"], 3),
-                            "ICDAR2015 Precision": np.round(metrics["precision"], 3),
-                            "ICDAR2015 F1-score": np.round(metrics["hmean"], 3),
-                        }
-                    )
+                    #
+                    # wandb.log(
+                    #     {
+                    #         "ICDAR2015 Recall": np.round(metrics["recall"], 3),
+                    #         "ICDAR2015 Precision": np.round(metrics["precision"], 3),
+                    #         "ICDAR2015 F1-score": np.round(metrics["hmean"], 3),
+                    #     }
+                    # )
 
                 train_step += 1
                 temp_config.ITER = train_step
@@ -414,14 +395,14 @@ class Trainer(object):
             )
             metrics = main_eval(save_param_path, self.config, evaluator, val_result_dir)
 
-            wandb.log(
-                {
-                    "ICDAR2015 Recall": np.round(metrics["recall"], 3),
-                    "ICDAR2015 Precision": np.round(metrics["precision"], 3),
-                    "ICDAR2015 F1-score": np.round(metrics["hmean"], 3),
-                }
-            )
-            wandb.finish()
+            # wandb.log(
+            #     {
+            #         "ICDAR2015 Recall": np.round(metrics["recall"], 3),
+            #         "ICDAR2015 Precision": np.round(metrics["precision"], 3),
+            #         "ICDAR2015 F1-score": np.round(metrics["hmean"], 3),
+            #     }
+            # )
+            # wandb.finish()
 
 
 def main():
@@ -463,11 +444,11 @@ def main_worker(gpu, ngpus_per_node):
 
     if gpu == 0:
         # Apply config to wandb
-        wandb.init(project="craft-icdar", entity="gmuffiness", name=args.yaml)
-        wandb.config.update(config)
-        print("-"*20+" Options "+"-"*20)
-        print(yaml.dump(config))
-        print("-" * 40)
+        # wandb.init(project="craft-icdar", entity="gmuffiness", name=args.yaml)
+        # wandb.config.update(config)
+        # print("-"*20+" Options "+"-"*20)
+        # print(yaml.dump(config))
+        # print("-" * 40)
 
         # Make result_dir
         res_dir = os.path.join("exp", args.yaml)

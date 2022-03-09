@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 from tqdm import tqdm
-import wandb
+#import wandb
 import yaml
 
 from config.load_config import load_yaml, DotDict
@@ -323,8 +323,8 @@ if __name__ == "__main__":
     config.results_dir = res_dir
 
     # wandb
-    wandb.init(project="jm-test", entity="pingu", name=args.yaml)
-    wandb.config.update(config)
+    # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
+    # wandb.config.update(config)
 
     evaluator = DetectionIoUEvaluator()
     main(config.test.trained_model, config, evaluator, res_dir)
