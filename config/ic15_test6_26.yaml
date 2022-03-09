@@ -1,11 +1,11 @@
 results_dir: "./exp/"
-vis_test_dir: "/nas/home/gmuffiness/result/vis_test_ic15"
+vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
   ic15: "/data/ICDAR2015/"
   ic15_gt: NULL
-#  ic15_gt: "/data/ICDAR2015_official_supervision_v3/0"
+  #ic15_gt: "/data/ICDAR2015_official_supervision_v3/0"
   ic13: "/data/ICDAR2013/"
 
 train:
@@ -23,7 +23,7 @@ train:
   neg_rto: 1
   n_min_neg: 1000
   data:
-    vis_opt: True
+    vis_opt: False
     pseudo_vis_opt: False
     output_size: 768
     enlarge_region : [0.5, 0.5] # x axis, y axis

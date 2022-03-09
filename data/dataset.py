@@ -19,7 +19,7 @@ from data.imgaug import (
     random_scale,
     random_resize_crop,
 )
-from data.pseudo_label.make_charbox import PseudoCharBoxBuilder
+from data.pseudo_label.make_charbox import PseudoCharBoxBuilder_test
 from utils.util import saveInput, saveImage
 
 
@@ -196,12 +196,318 @@ class SynthTextDataSet(Dataset):
         image = image.transpose(2, 0, 1)
 
         return image, region_score, affinity_score, confidence_mask
+#
+#
+# class ICDAR2015(Dataset):
+#     def __init__(
+#         self,
+#         net,
+#         output_size,
+#         data_dir,
+#         saved_gt_dir,
+#         gauss_init_size,
+#         gauss_sigma,
+#         enlarge_region,
+#         enlarge_affinity,
+#         watershed_ver,
+#         aug,
+#         vis_test_dir,
+#         vis_opt,
+#         pseudo_vis_opt,
+#     ):
+#
+#         self.net = net
+#         self.output_size = output_size
+#         self.data_dir = data_dir
+#         self.saved_gt_dir = saved_gt_dir
+#         self.gaussian_builder = GaussianBuilder(
+#             gauss_init_size, gauss_sigma, enlarge_region, enlarge_affinity
+#         )
+#         self.pseudo_charbox_builder = PseudoCharBoxBuilder(
+#             net, watershed_ver, vis_test_dir, pseudo_vis_opt, self.gaussian_builder
+#         )
+#         self.aug = aug
+#         self.vis_test_dir = vis_test_dir
+#         self.vis_opt = vis_opt
+#         self.pseudo_vis_opt = pseudo_vis_opt
+#         # self.vis_index = [189, 41, 723, 251, 232, 115, 634, 951, 247, 25, 400, 704, 619, 305, 423, 20, 31]
+#         self.vis_index = list(range(1000))
+#         self.img_dir = os.path.join(data_dir, "ch4_training_images")
+#         self.img_gt_box_dir = os.path.join(
+#             data_dir, "ch4_training_localization_transcription_gt"
+#         )
+#         self.img_names = os.listdir(self.img_dir)
+#
+#     def load_img_gt_box(self, img_gt_box_path):
+#         lines = open(img_gt_box_path, encoding="utf-8").readlines()
+#         word_bboxes = []
+#         words = []
+#         for line in lines:
+#             box_info = line.strip().encode("utf-8").decode("utf-8-sig").split(",")
+#             box_points = [int(box_info[i]) for i in range(8)]
+#             box_points = np.array(box_points, np.float32).reshape(4, 2)
+#             word = box_info[8:]
+#             word = ",".join(word)
+#             if word == "###":
+#                 words.append("###")
+#                 word_bboxes.append(box_points)
+#                 continue
+#             word_bboxes.append(box_points)
+#             words.append(word)
+#         return word_bboxes, words
+#
+#     def load_data(self, index):
+#         img_name = self.img_names[index]
+#         img_path = os.path.join(self.img_dir, img_name)
+#         image = cv2.imread(img_path)
+#         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+#
+#         img_gt_box_path = os.path.join(
+#             self.img_gt_box_dir, "gt_%s.txt" % os.path.splitext(img_name)[0]
+#         )
+#         word_bboxes, words = self.load_img_gt_box(img_gt_box_path)
+#         confidence_mask = np.ones((image.shape[0], image.shape[1]), np.float32)
+#
+#         word_level_char_bbox = []
+#         do_care_words = []
+#
+#         if len(word_bboxes) == 0:
+#             return image, word_level_char_bbox, do_care_words, confidence_mask
+#
+#         for i in range(len(word_bboxes)):
+#             # TODO: fill confidence mask 할 때, 더 낮은 값이 들어가도록 수정?
+#             if words[i] == "###" or len(words[i].strip()) == 0:
+#                 cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], 0)
+#                 continue
+#
+#             pseudo_char_bbox, confidence = self.pseudo_charbox_builder.build_char_box(
+#                 image, word_bboxes[i], words[i], img_name=img_name
+#             )
+#
+#             cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], confidence)
+#             do_care_words.append(words[i])
+#             word_level_char_bbox.append(pseudo_char_bbox)
+#         return image, word_level_char_bbox, do_care_words, confidence_mask
+#
+#     def make_pseudo_gt(self, index):
+#         """
+#         Make region, affinity scores using pseudo character-level GT bounding box
+#
+#         word_level_char_bbox's shape : [word_num, [char_num_in_one_word, 4, 2]]
+#         :rtype region_score: np.float32
+#         :rtype affinity_score: np.float32
+#         :rtype confidence_mask: np.float32
+#         :rtype word_level_char_bbox: np.float32
+#         :rtype words: list
+#         """
+#         (image, word_level_char_bbox, words, confidence_mask,) = self.load_data(index)
+#         img_h, img_w, _ = image.shape
+#
+#         if len(word_level_char_bbox) == 0:
+#             region_score = np.zeros((img_h, img_w), dtype=np.float32)
+#             affinity_score = np.zeros((img_h, img_w), dtype=np.float32)
+#         else:
+#             region_score = self.gaussian_builder.generate_region(
+#                 img_h, img_w, word_level_char_bbox
+#             )
+#             affinity_score, _ = self.gaussian_builder.generate_affinity(
+#                 img_h, img_w, word_level_char_bbox
+#             )
+#
+#         return (
+#             image,
+#             region_score,
+#             affinity_score,
+#             confidence_mask,
+#             word_level_char_bbox,
+#             words,
+#         )
+#
+#     def load_saved_gt(self, index):
+#         """
+#         Load pre-saved official CRAFT model's region, affinity scores to train IC15
+#
+#         word_level_char_bbox's shape : [word_num, [char_num_in_one_word, 4, 2]]
+#         :rtype region_score: np.float32
+#         :rtype affinity_score: np.float32
+#         :rtype confidence_mask: np.float32
+#         :rtype word_level_char_bbox: np.float32
+#         :rtype words: list
+#         """
+#         img_name = self.img_names[index]
+#         img_path = os.path.join(self.img_dir, img_name)
+#         image = cv2.imread(img_path)
+#         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+#         img_h, img_w, _ = image.shape
+#
+#         img_gt_box_path = os.path.join(
+#             self.img_gt_box_dir, "gt_%s.txt" % os.path.splitext(img_name)[0]
+#         )
+#         word_bboxes, words = self.load_img_gt_box(img_gt_box_path)
+#
+#         query_idx = int(self.img_names[index].split(".")[0].split("_")[1])
+#
+#         saved_region_scores_path = os.path.join(
+#             self.saved_gt_dir, f"res_img_{query_idx}_region.jpg"
+#         )
+#         saved_affi_scores_path = os.path.join(
+#             self.saved_gt_dir, f"res_img_{query_idx}_affi.jpg"
+#         )
+#         saved_cf_mask_path = os.path.join(
+#             self.saved_gt_dir, f"res_img_{query_idx}_cf_mask_thresh_0.6.jpg"
+#         )
+#         region_score = cv2.imread(saved_region_scores_path, cv2.IMREAD_GRAYSCALE)
+#         affinity_score = cv2.imread(saved_affi_scores_path, cv2.IMREAD_GRAYSCALE)
+#         confidence_mask = cv2.imread(saved_cf_mask_path, cv2.IMREAD_GRAYSCALE)
+#
+#         region_score = region_score.astype(np.float32) / 255
+#         affinity_score = affinity_score.astype(np.float32) / 255
+#         confidence_mask = confidence_mask.astype(np.float32) / 255
+#
+#         # NOTE : Even though word_level_char_bbox is not necessary, align bbox format with make_pseudo_gt()
+#         word_level_char_bbox = []
+#         trunc_mask = np.zeros([img_h, img_w], dtype=np.float32)
+#         for i in range(len(word_bboxes)):
+#             cv2.fillPoly(trunc_mask, [np.int32(word_bboxes[i])], 1.0)
+#             word_level_char_bbox.append(np.expand_dims(word_bboxes[i], 0))
+#
+#         # Truncate region, affinity scores out of GT bounding box area
+#         trunc_mask = trunc_mask.astype(np.float32)
+#         region_score = region_score * trunc_mask
+#         affinity_score = affinity_score * trunc_mask
+#
+#         return (
+#             image,
+#             region_score,
+#             affinity_score,
+#             confidence_mask,
+#             word_level_char_bbox,
+#             words,
+#         )
+#
+#     def augment_image(
+#         self, image, region_score, affinity_score, confidence_mask, word_level_char_bbox
+#     ):
+#
+#         augment_targets = [image, region_score, affinity_score, confidence_mask]
+#
+#         if self.aug.random_scale.option:
+#             augment_targets, word_level_char_bbox = random_scale(
+#                 augment_targets, word_level_char_bbox, self.aug.random_scale.range
+#             )
+#
+#         if self.aug.random_rotate.option:
+#             augment_targets = random_rotate(
+#                 augment_targets, self.aug.random_rotate.max_angle
+#             )
+#
+#         if self.aug.random_crop.option:
+#             if (
+#                 self.aug.random_crop.version
+#                 == "random_crop_with_bbox_adapt_to_output_size"
+#             ):
+#                 augment_targets = random_crop_with_bbox_adapt_to_output_size(
+#                     augment_targets, word_level_char_bbox, self.output_size
+#                 )
+#             elif self.aug.random_crop.version == "random_resize_crop":
+#                 augment_targets = random_resize_crop(
+#                     augment_targets,
+#                     self.aug.random_crop.scale,
+#                     self.aug.random_crop.ratio,
+#                     self.output_size,
+#                 )
+#             else:
+#                 assert "Undefined RandomCrop version"
+#
+#         if self.aug.random_horizontal_flip.option:
+#             augment_targets = random_horizontal_flip(augment_targets)
+#
+#         if self.aug.random_colorjitter.option:
+#             image, region_score, affinity_score, confidence_mask = augment_targets
+#             image = Image.fromarray(image)
+#             image = transforms.ColorJitter(
+#                 brightness=self.aug.random_colorjitter.brightness,
+#                 contrast=self.aug.random_colorjitter.contrast,
+#                 saturation=self.aug.random_colorjitter.saturation,
+#                 hue=self.aug.random_colorjitter.hue,
+#             )(image)
+#         else:
+#             image, region_score, affinity_score, confidence_mask = augment_targets
+#
+#         return np.array(image), region_score, affinity_score, confidence_mask
+#
+#     def resize_to_half(self, ground_truth):
+#         return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2))
+#
+#     def __len__(self):
+#         return len(self.img_names)
+#
+#     def __getitem__(self, index):
+#         if self.saved_gt_dir is None:
+#             (
+#                 image,
+#                 region_score,
+#                 affinity_score,
+#                 confidence_mask,
+#                 word_level_char_bbox,
+#                 words,
+#             ) = self.make_pseudo_gt(index)
+#         else:
+#             (
+#                 image,
+#                 region_score,
+#                 affinity_score,
+#                 confidence_mask,
+#                 word_level_char_bbox,
+#                 words,
+#             ) = self.load_saved_gt(index)
+#
+#         query_idx = int(self.img_names[index].split(".")[0].split("_")[1])
+#
+#         if self.vis_opt and query_idx in self.vis_index:
+#             saveImage(
+#                 self.img_names[index],
+#                 self.vis_test_dir,
+#                 image.copy(),
+#                 word_level_char_bbox.copy(),
+#                 region_score.copy(),
+#                 affinity_score.copy(),
+#                 confidence_mask.copy(),
+#             )
+#
+#         image, region_score, affinity_score, confidence_mask = self.augment_image(
+#             image, region_score, affinity_score, confidence_mask, word_level_char_bbox
+#         )
+#
+#         if self.vis_opt and query_idx in self.vis_index:
+#             saveInput(
+#                 self.img_names[index],
+#                 self.vis_test_dir,
+#                 image,
+#                 region_score,
+#                 affinity_score,
+#                 confidence_mask,
+#             )
+#
+#         region_score = self.resize_to_half(region_score)
+#         affinity_score = self.resize_to_half(affinity_score)
+#         confidence_mask = self.resize_to_half(confidence_mask)
+#
+#         image = imgproc.normalizeMeanVariance(
+#             np.array(image), mean=(0.485, 0.456, 0.406), variance=(0.229, 0.224, 0.225)
+#         )
+#         image = image.transpose(2, 0, 1)
+#
+#         return image, region_score, affinity_score, confidence_mask
 
 
-class ICDAR2015(Dataset):
+
+#----------------------------------------------------------------------------------------------------------------------#
+
+
+class ICDAR2015_test(Dataset):
     def __init__(
         self,
-        net,
         output_size,
         data_dir,
         saved_gt_dir,
@@ -216,16 +522,9 @@ class ICDAR2015(Dataset):
         pseudo_vis_opt,
     ):
 
-        self.net = net
         self.output_size = output_size
         self.data_dir = data_dir
         self.saved_gt_dir = saved_gt_dir
-        self.gaussian_builder = GaussianBuilder(
-            gauss_init_size, gauss_sigma, enlarge_region, enlarge_affinity
-        )
-        self.pseudo_charbox_builder = PseudoCharBoxBuilder(
-            net, watershed_ver, vis_test_dir, pseudo_vis_opt, self.gaussian_builder
-        )
         self.aug = aug
         self.vis_test_dir = vis_test_dir
         self.vis_opt = vis_opt
@@ -237,6 +536,82 @@ class ICDAR2015(Dataset):
             data_dir, "ch4_training_localization_transcription_gt"
         )
         self.img_names = os.listdir(self.img_dir)
+
+        self.gaussian_builder = GaussianBuilder(
+            gauss_init_size, gauss_sigma, enlarge_region, enlarge_affinity
+        )
+        self.pseudo_charbox_builder = PseudoCharBoxBuilder_test(
+            watershed_ver, vis_test_dir, pseudo_vis_opt, self.gaussian_builder
+        )
+
+
+    def __len__(self):
+        return len(self.img_names)
+
+    def __getitem__(self, index):
+        if self.saved_gt_dir is None:
+            (
+                image,
+                region_score,
+                affinity_score,
+                confidence_mask,
+                word_level_char_bbox,
+                words,
+            ) = self.make_pseudo_gt(index)
+        else:
+            (
+                image,
+                region_score,
+                affinity_score,
+                confidence_mask,
+                word_level_char_bbox,
+                words,
+            ) = self.load_saved_gt(index)
+
+        query_idx = int(self.img_names[index].split(".")[0].split("_")[1])
+
+        if self.vis_opt and query_idx in self.vis_index:
+            saveImage(
+                self.img_names[index],
+                self.vis_test_dir,
+                image.copy(),
+                word_level_char_bbox.copy(),
+                region_score.copy(),
+                affinity_score.copy(),
+                confidence_mask.copy(),
+            )
+
+        image, region_score, affinity_score, confidence_mask = self.augment_image(
+            image, region_score, affinity_score, confidence_mask, word_level_char_bbox
+        )
+
+        if self.vis_opt and query_idx in self.vis_index:
+            saveInput(
+                self.img_names[index],
+                self.vis_test_dir,
+                image,
+                region_score,
+                affinity_score,
+                confidence_mask,
+            )
+
+        region_score = self.resize_to_half(region_score)
+        affinity_score = self.resize_to_half(affinity_score)
+        confidence_mask = self.resize_to_half(confidence_mask)
+
+        image = imgproc.normalizeMeanVariance(
+            np.array(image), mean=(0.485, 0.456, 0.406), variance=(0.229, 0.224, 0.225)
+        )
+        image = image.transpose(2, 0, 1)
+
+        return image, region_score, affinity_score, confidence_mask
+
+
+    def update_model(self, model):
+        self.model = model
+
+    def update_device(self, device):
+        self.device = device
 
     def load_img_gt_box(self, img_gt_box_path):
         lines = open(img_gt_box_path, encoding="utf-8").readlines()
@@ -281,7 +656,7 @@ class ICDAR2015(Dataset):
                 continue
 
             pseudo_char_bbox, confidence = self.pseudo_charbox_builder.build_char_box(
-                image, word_bboxes[i], words[i], img_name=img_name
+                self.model, self.device, image, word_bboxes[i], words[i], img_name=img_name
             )
 
             cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], confidence)
@@ -439,63 +814,3 @@ class ICDAR2015(Dataset):
     def resize_to_half(self, ground_truth):
         return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2))
 
-    def __len__(self):
-        return len(self.img_names)
-
-    def __getitem__(self, index):
-        if self.saved_gt_dir is None:
-            (
-                image,
-                region_score,
-                affinity_score,
-                confidence_mask,
-                word_level_char_bbox,
-                words,
-            ) = self.make_pseudo_gt(index)
-        else:
-            (
-                image,
-                region_score,
-                affinity_score,
-                confidence_mask,
-                word_level_char_bbox,
-                words,
-            ) = self.load_saved_gt(index)
-
-        query_idx = int(self.img_names[index].split(".")[0].split("_")[1])
-
-        if self.vis_opt and query_idx in self.vis_index:
-            saveImage(
-                self.img_names[index],
-                self.vis_test_dir,
-                image.copy(),
-                word_level_char_bbox.copy(),
-                region_score.copy(),
-                affinity_score.copy(),
-                confidence_mask.copy(),
-            )
-
-        image, region_score, affinity_score, confidence_mask = self.augment_image(
-            image, region_score, affinity_score, confidence_mask, word_level_char_bbox
-        )
-
-        if self.vis_opt and query_idx in self.vis_index:
-            saveInput(
-                self.img_names[index],
-                self.vis_test_dir,
-                image,
-                region_score,
-                affinity_score,
-                confidence_mask,
-            )
-
-        region_score = self.resize_to_half(region_score)
-        affinity_score = self.resize_to_half(affinity_score)
-        confidence_mask = self.resize_to_half(confidence_mask)
-
-        image = imgproc.normalizeMeanVariance(
-            np.array(image), mean=(0.485, 0.456, 0.406), variance=(0.229, 0.224, 0.225)
-        )
-        image = image.transpose(2, 0, 1)
-
-        return image, region_score, affinity_score, confidence_mask

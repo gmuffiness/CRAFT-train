@@ -34,8 +34,6 @@ class Trainer(object):
 
     def _get_synth_loader(self):
         # 나중에 따로 동작할 수 도 있을 것 같아서 분리 시켜 놓음
-
-
         synth_dataset = SynthTextDataSet(
             output_size=self.config.train.data.output_size,
             data_dir=self.config.data_dir.synthtext,
