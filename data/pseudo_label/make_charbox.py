@@ -147,16 +147,6 @@ class PseudoCharBoxBuilder:
             vis_result,
         )
 
-    def exclude_small_char(self, pseudo_char_bbox):
-        bbox = []
-        # except for the small box
-        for i in range(pseudo_char_bbox.shape[0]):
-            if np.mean(pseudo_char_bbox[i].ravel()) > 2:  # ravel -> 1차원 변환
-                bbox.append(pseudo_char_bbox[i])
-            else:
-                print("filter bboxes", pseudo_char_bbox[i])  # 작은 box들
-        return bbox
-
     def clip_into_boundary(self, box, bound):
         if len(box) == 0:
             return box
@@ -211,7 +201,6 @@ class PseudoCharBoxBuilder:
         pseudo_char_bbox = self.clip_into_boundary(
             pseudo_char_bbox, region_score_rgb.shape
         )
-        pseudo_char_bbox = self.exclude_small_char(pseudo_char_bbox)
 
         confidence = self.get_confidence(real_char_len, len(pseudo_char_bbox))
 

@@ -149,7 +149,7 @@ class GaussianBuilder(object):
     def generate_region(self, img_h, img_w, word_level_char_bbox):
 
         region_map = np.zeros([img_h, img_w], dtype=np.float32)
-        for i in range(len(word_level_char_bbox)):
+        for i in range(len(word_level_char_bbox)): # shape : [word_num, [char_num_in_one_word, 4, 2]]
             for j in range(len(word_level_char_bbox[i])):
                 region_map = self.add_gaussian_map_to_score_map(
                     region_map,

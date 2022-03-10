@@ -130,7 +130,7 @@ def random_crop_v0(imgs, img_size, character_bboxes):
     return imgs
 
 
-def random_crop_with_bbox_adapt_to_output_size(augment_targets, word_level_char_bbox, output_size):
+def random_crop_with_bbox(augment_targets, word_level_char_bbox, output_size):
     h, w = augment_targets[0].shape[0:2]
     th, tw = output_size, output_size
     crop_h, crop_w = output_size, output_size

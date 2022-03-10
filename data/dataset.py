@@ -13,7 +13,7 @@ import torchvision.transforms as transforms
 from data import imgproc
 from data.gaussian import GaussianBuilder
 from data.imgaug import (
-    random_crop_with_bbox_adapt_to_output_size,
+    random_crop_with_bbox,
     random_horizontal_flip,
     random_rotate,
     random_scale,
@@ -62,12 +62,12 @@ class SynthTextDataSet(Dataset):
 
         return img_names, img_bbox, img_words
 
-    def make_pseudo_gt(self, index):
+    def make_gt_score(self, index):
 
         img_path = os.path.join(self.data_dir, self.img_names[index][0])
         image = cv2.imread(img_path, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        all_char_bbox = self.char_bbox[index].transpose((2, 1, 0))
+        all_char_bbox = self.char_bbox[index].transpose((2, 1, 0)) # shape : (Number of characters in image, 4, 2)
         image, all_char_bbox = self.dilate_img_to_output_size(image, all_char_bbox)
 
         img_h, img_w, _ = image.shape
@@ -135,9 +135,9 @@ class SynthTextDataSet(Dataset):
         if self.aug.random_crop.option:
             if (
                 self.aug.random_crop.version
-                == "random_crop_with_bbox_adapt_to_output_size"
+                == "random_crop_with_bbox"
             ):
-                augment_targets = random_crop_with_bbox_adapt_to_output_size(
+                augment_targets = random_crop_with_bbox(
                     augment_targets, word_level_char_bbox, self.output_size
                 )
             elif self.aug.random_crop.version == "random_resize_crop":
@@ -181,7 +181,7 @@ class SynthTextDataSet(Dataset):
             confidence_mask,
             word_level_char_bbox,
             words,
-        ) = self.make_pseudo_gt(index)
+        ) = self.make_gt_score(index)
 
         image, region_score, affinity_score, confidence_mask = self.augment_image(
             image, region_score, affinity_score, confidence_mask, word_level_char_bbox
@@ -270,7 +270,7 @@ class ICDAR2015(Dataset):
         img_gt_box_path = os.path.join(
             self.img_gt_box_dir, "gt_%s.txt" % os.path.splitext(img_name)[0]
         )
-        word_bboxes, words = self.load_img_gt_box(img_gt_box_path)
+        word_bboxes, words = self.load_img_gt_box(img_gt_box_path) # shape : (Number of word bbox, 4, 2)
         confidence_mask = np.ones((image.shape[0], image.shape[1]), np.float32)
 
         word_level_char_bbox = []
@@ -300,7 +300,7 @@ class ICDAR2015(Dataset):
 
         return image, word_level_char_bbox, do_care_words, confidence_mask
 
-    def make_pseudo_gt(self, index):
+    def make_pseudo_gt_score(self, index):
         """
         Make region, affinity scores using pseudo character-level GT bounding box
         word_level_char_bbox's shape : [word_num, [char_num_in_one_word, 4, 2]]
@@ -335,7 +335,7 @@ class ICDAR2015(Dataset):
             words,
         )
 
-    def load_saved_gt(self, index):
+    def load_saved_gt_score(self, index):
         """
         Load pre-saved official CRAFT model's region, affinity scores to train IC15
         word_level_char_bbox's shape : [word_num, [char_num_in_one_word, 4, 2]]
@@ -375,7 +375,7 @@ class ICDAR2015(Dataset):
         affinity_score = affinity_score.astype(np.float32) / 255
         confidence_mask = confidence_mask.astype(np.float32) / 255
 
-        # NOTE : Even though word_level_char_bbox is not necessary, align bbox format with make_pseudo_gt()
+        # NOTE : Even though word_level_char_bbox is not necessary, align bbox format with make_pseudo_gt_score()
         word_level_char_bbox = []
         trunc_mask = np.zeros([img_h, img_w], dtype=np.float32)
         for i in range(len(word_bboxes)):
@@ -414,9 +414,9 @@ class ICDAR2015(Dataset):
         if self.aug.random_crop.option:
             if (
                 self.aug.random_crop.version
-                == "random_crop_with_bbox_adapt_to_output_size"
+                == "random_crop_with_bbox"
             ):
-                augment_targets = random_crop_with_bbox_adapt_to_output_size(
+                augment_targets = random_crop_with_bbox(
                     augment_targets, word_level_char_bbox, self.output_size
                 )
             elif self.aug.random_crop.version == "random_resize_crop":
@@ -462,7 +462,7 @@ class ICDAR2015(Dataset):
                 word_level_char_bbox,
                 all_affinity_bbox,
                 words,
-            ) = self.make_pseudo_gt(index)
+            ) = self.make_pseudo_gt_score(index)
         else:
             (
                 image,
@@ -471,7 +471,7 @@ class ICDAR2015(Dataset):
                 confidence_mask,
                 word_level_char_bbox,
                 words,
-            ) = self.load_saved_gt(index)
+            ) = self.load_saved_gt_score(index)
             all_affinity_bbox = []
 
         query_idx = int(self.img_names[index].split(".")[0].split("_")[1])
