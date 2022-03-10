@@ -64,12 +64,9 @@ class PseudoCharBoxBuilder:
         return warped, M
 
     def inference_word_box(self, net, gpu, word_image):
-        # print(f'In GPU {torch.cuda.current_device()}')
-        # print('Model last parameters : {}'.format(net.conv_cls[-1].weight.reshape(2, -1)))
-
         if net.training:
             net.eval()
-        net = net.to(gpu)
+
         if gpu == 0:
             # print(f'In supervision model GPU {gpu} : {net.conv_cls[-1].weight.reshape(2, -1)}')
             pass
@@ -83,7 +80,7 @@ class PseudoCharBoxBuilder:
                 )
             )
             word_img_torch = word_img_torch.permute(2, 0, 1).unsqueeze(0)
-            word_img_torch = word_img_torch.type(torch.FloatTensor).to(gpu)
+            word_img_torch = word_img_torch.type(torch.FloatTensor)
             word_img_scores, _ = net(word_img_torch)
         return word_img_scores
 

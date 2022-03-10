@@ -246,7 +246,7 @@ def main(model_path, config, evaluator, result_dir, viz=True):
     total_imgs_bboxes_gt, total_imgs_path = load_test_dataset(test_folder_name, config)
 
     # -----------------------------------------------------------------------------------------------------------------#
-
+    canvas_size = config.test.canvas_size[test_folder_name]
     total_img_bboxes_pre = []
     for k, img_path in enumerate(tqdm(total_imgs_path)):
 
@@ -263,7 +263,7 @@ def main(model_path, config, evaluator, result_dir, viz=True):
             config.test.low_text,
             config.test.cuda,
             config.test.poly,
-            config.test.canvas_size,
+            canvas_size,
             config.test.mag_ratio,
         )
 

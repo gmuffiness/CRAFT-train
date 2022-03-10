@@ -1,19 +1,20 @@
 results_dir: "./exp/"
-vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
+#vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
+vis_test_dir: "/nas/home/gmuffiness/result/debug_ic15_test6_26_with_gt2"
 
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
   ic15: "/data/ICDAR2015/"
-  ic15_gt: NULL
-  #ic15_gt: "/data/ICDAR2015_official_supervision_v3/0"
+#  ic15_gt: NULL
+  ic15_gt: "/data/ICDAR2015_official_supervision_v3/0"
   ic13: "/data/ICDAR2013/"
 
 train:
   ckpt_path: "/nas/home/jihyokim/jm/CRAFT-Refactoring/config/shwang_test26_CRAFT_clr_amp_60000.pth"
   batch_size: 20
   st_iter: 0
-  end_iter: 60000
+  end_iter: 50000
   lr: 0.0001
   lr_decay: 15000
   gamma: 0.2
@@ -24,7 +25,7 @@ train:
   neg_rto: 1
   n_min_neg: 1000
   data:
-    vis_opt: False
+    vis_opt: True
     pseudo_vis_opt: False
     output_size: 768
     enlarge_region : [0.5, 0.5] # x axis, y axis
@@ -51,7 +52,7 @@ train:
         contrast: 0.2
         saturation: 0.2
         hue: 0.2
-        option: False
+        option: True
     icdar_aug:
       random_scale:
         range: [ 1.0, 1.5, 2.0 ]
@@ -80,6 +81,8 @@ test:
   low_text: 0.5 # ICDAR2015 0.5
   link_threshold: 0.2 # ICDAR2013: 0.2
   cuda: True
-  canvas_size: 960
+  canvas_size:
+    icdar2013: 960
+    icdar2015: 2240
   mag_ratio: 1.5
   poly: False
