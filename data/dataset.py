@@ -13,11 +13,13 @@ import torchvision.transforms as transforms
 from data import imgproc
 from data.gaussian import GaussianBuilder
 from data.imgaug import (
+    rescale_ic15,
+    random_resize_crop_synth,
+    random_resize_crop,
     random_crop_with_bbox,
     random_horizontal_flip,
     random_rotate,
     random_scale,
-    random_resize_crop,
 )
 from data.pseudo_label.make_charbox import PseudoCharBoxBuilder
 from utils.util import saveInput, saveImage
@@ -141,11 +143,8 @@ class SynthTextDataSet(Dataset):
                     augment_targets, word_level_char_bbox, self.output_size
                 )
             elif self.aug.random_crop.version == "random_resize_crop":
-                augment_targets = random_resize_crop(
-                    augment_targets,
-                    self.aug.random_crop.scale,
-                    self.aug.random_crop.ratio,
-                    self.output_size,
+                augment_targets = random_resize_crop_synth(
+                    augment_targets, self.output_size
                 )
             else:
                 assert "Undefined RandomCrop version"
@@ -259,7 +258,7 @@ class ICDAR2015(Dataset):
                 continue
             word_bboxes.append(box_points)
             words.append(word)
-        return word_bboxes, words
+        return np.array(word_bboxes), words
 
     def load_data(self, index):
         img_name = self.img_names[index]
@@ -349,12 +348,13 @@ class ICDAR2015(Dataset):
         img_path = os.path.join(self.img_dir, img_name)
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        img_h, img_w, _ = image.shape
 
         img_gt_box_path = os.path.join(
             self.img_gt_box_dir, "gt_%s.txt" % os.path.splitext(img_name)[0]
         )
         word_bboxes, words = self.load_img_gt_box(img_gt_box_path)
+        image, word_bboxes = rescale_ic15(image, word_bboxes)
+        img_h, img_w, _ = image.shape
 
         query_idx = int(self.img_names[index].split(".")[0].split("_")[1])
 
@@ -371,21 +371,26 @@ class ICDAR2015(Dataset):
         affinity_score = cv2.imread(saved_affi_scores_path, cv2.IMREAD_GRAYSCALE)
         confidence_mask = cv2.imread(saved_cf_mask_path, cv2.IMREAD_GRAYSCALE)
 
+        region_score = cv2.resize(region_score, (img_w, img_h))
+        affinity_score = cv2.resize(affinity_score, (img_w, img_h))
+        confidence_mask = cv2.resize(confidence_mask, (img_w, img_h),
+                                     interpolation=cv2.INTER_NEAREST)
+
         region_score = region_score.astype(np.float32) / 255
         affinity_score = affinity_score.astype(np.float32) / 255
         confidence_mask = confidence_mask.astype(np.float32) / 255
 
         # NOTE : Even though word_level_char_bbox is not necessary, align bbox format with make_pseudo_gt_score()
         word_level_char_bbox = []
-        trunc_mask = np.zeros([img_h, img_w], dtype=np.float32)
+        # trunc_mask = np.zeros([img_h, img_w], dtype=np.float32)
         for i in range(len(word_bboxes)):
-            cv2.fillPoly(trunc_mask, [np.int32(word_bboxes[i])], 1.0)
+            # cv2.fillPoly(trunc_mask, [np.int32(word_bboxes[i])], 1.0)
             word_level_char_bbox.append(np.expand_dims(word_bboxes[i], 0))
 
         # Truncate region, affinity scores out of GT bounding box area
-        trunc_mask = trunc_mask.astype(np.float32)
-        region_score = region_score * trunc_mask
-        affinity_score = affinity_score * trunc_mask
+        # trunc_mask = trunc_mask.astype(np.float32)
+        # region_score = region_score * trunc_mask
+        # affinity_score = affinity_score * trunc_mask
 
         return (
             image,
@@ -425,6 +430,7 @@ class ICDAR2015(Dataset):
                     self.aug.random_crop.scale,
                     self.aug.random_crop.ratio,
                     self.output_size,
+                    self.aug.random_crop.rnd_threshold,
                 )
             else:
                 assert "Undefined RandomCrop version"

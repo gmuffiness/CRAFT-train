@@ -12,7 +12,7 @@ data_dir:
 
 train:
   ckpt_path: "/nas/home/jihyokim/jm/CRAFT-Refactoring/config/shwang_test26_CRAFT_clr_amp_60000.pth"
-  batch_size: 20
+  batch_size: 40
   st_iter: 0
   end_iter: 50000
   lr: 0.0001
@@ -21,11 +21,11 @@ train:
   weight_decay: 0.00001
   num_workers: 4
   amp: True
-  loss: 3
-  neg_rto: 1
-  n_min_neg: 1000
+  loss: 2
+  neg_rto: 0.3
+  n_min_neg: 5000
   data:
-    vis_opt: True
+    vis_opt: False
     pseudo_vis_opt: False
     output_size: 768
     enlarge_region : [0.5, 0.5] # x axis, y axis
@@ -62,8 +62,9 @@ train:
         option: False
       random_crop:
         version: "random_resize_crop"
-        scale: [ 0.333, 1.0 ]
-        ratio: [ 0.75, 1.333 ]
+        scale: [0.03, 0.4]
+        ratio: [0.75, 1.33]
+        rnd_threshold: 1.0
         option: True
       random_horizontal_flip:
         option: False
@@ -77,12 +78,12 @@ train:
 test:
   test_data_dir: "/data/ICDAR2015/"
   trained_model: null
-  text_threshold: 0.85 # ICDAR2015 0.85
+  text_threshold: 0.75 # ICDAR2015 0.85
   low_text: 0.5 # ICDAR2015 0.5
   link_threshold: 0.2 # ICDAR2013: 0.2
   cuda: True
   canvas_size:
     icdar2013: 960
     icdar2015: 2240
-  mag_ratio: 1.5
+  mag_ratio: 1.75
   poly: False

@@ -247,6 +247,7 @@ def main(model_path, config, evaluator, result_dir, viz=True):
 
     # -----------------------------------------------------------------------------------------------------------------#
     canvas_size = config.test.canvas_size[test_folder_name]
+    print(canvas_size)
     total_img_bboxes_pre = []
     for k, img_path in enumerate(tqdm(total_imgs_path)):
 
