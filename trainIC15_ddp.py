@@ -146,9 +146,9 @@ class Trainer(object):
 
         # MODEL -------------------------------------------------------------------------------------------------------#
         # SUPERVISION model
-        # supervision_model = CRAFT(pretrained=True, amp=self.config.train.amp)
-        # if self.config.train.ckpt_path is not None:
-        #     supervision_model.load_state_dict(copyStateDict(self.net_param['craft']))
+        supervision_model = CRAFT(pretrained=True, amp=self.config.train.amp)
+        if self.config.train.ckpt_path is not None:
+            supervision_model.load_state_dict(copyStateDict(self.net_param['craft']))
 
         # TRAIN model
         craft = CRAFT(pretrained=True, amp=self.config.train.amp)
@@ -166,8 +166,8 @@ class Trainer(object):
         trn_syn_loader = self.get_synth_loader()
         batch_syn = iter(trn_syn_loader)
         trn_icdar_dataset = self.get_icdar_dataset()
-        # trn_icdar_dataset.update_model(supervision_model)
-        # trn_icdar_dataset.update_device(self.gpu)
+        trn_icdar_dataset.update_model(supervision_model)
+        trn_icdar_dataset.update_device(self.gpu)
 
         trn_icdar15_sampler = torch.utils.data.distributed.DistributedSampler(trn_icdar_dataset)
         trn_icdar_loader = torch.utils.data.DataLoader(
@@ -298,9 +298,9 @@ class Trainer(object):
                 loss_value += loss.item()
                 batch_time += end_time - start_time
 
-                # state_dict = craft.module.state_dict()
-                # supervision_model.load_state_dict(state_dict)
-                # trn_icdar_dataset.update_model(supervision_model)
+                state_dict = craft.module.state_dict()
+                supervision_model.load_state_dict(state_dict)
+                trn_icdar_dataset.update_model(supervision_model)
 
                 if train_step > 0 and train_step%10==0 and self.gpu == 0:
                     # print(f'After training model update GPU {self.gpu} : {craft.module.conv_cls[-1].weight.reshape(2, -1)}')
@@ -318,7 +318,8 @@ class Trainer(object):
                           .format(time.strftime('%Y-%m-%d:%H:%M:%S',time.localtime(time.time())),
                                   train_step, whole_training_step, training_lr, mean_loss, avg_batch_time))
 
-                    wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
+                    if self.config.wandb_opt:
+                        wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
 
                 if train_step % 500 == 0 and train_step != 0 and self.gpu == 0:
@@ -356,13 +357,14 @@ class Trainer(object):
                         save_param_path, self.config, evaluator, val_result_dir
                     )
                     #
-                    wandb.log(
-                        {
-                            "ICDAR2015 Recall": np.round(metrics["recall"], 3),
-                            "ICDAR2015 Precision": np.round(metrics["precision"], 3),
-                            "ICDAR2015 F1-score": np.round(metrics["hmean"], 3),
-                        }
-                    )
+                    if self.config.wandb_opt:
+                        wandb.log(
+                            {
+                                "ICDAR2015 Recall": np.round(metrics["recall"], 3),
+                                "ICDAR2015 Precision": np.round(metrics["precision"], 3),
+                                "ICDAR2015 F1-score": np.round(metrics["hmean"], 3),
+                            }
+                        )
 
                 train_step += 1
                 temp_config.ITER = train_step
@@ -393,14 +395,15 @@ class Trainer(object):
             )
             metrics = main_eval(save_param_path, self.config, evaluator, val_result_dir)
 
-            wandb.log(
-                {
-                    "ICDAR2015 Recall": np.round(metrics["recall"], 3),
-                    "ICDAR2015 Precision": np.round(metrics["precision"], 3),
-                    "ICDAR2015 F1-score": np.round(metrics["hmean"], 3),
-                }
-            )
-            wandb.finish()
+            if self.config.wandb_opt:
+                wandb.log(
+                    {
+                        "ICDAR2015 Recall": np.round(metrics["recall"], 3),
+                        "ICDAR2015 Precision": np.round(metrics["precision"], 3),
+                        "ICDAR2015 F1-score": np.round(metrics["hmean"], 3),
+                    }
+                )
+                wandb.finish()
 
 
 def main():
@@ -441,8 +444,9 @@ def main_worker(gpu, ngpus_per_node):
 
     if gpu == 0:
         # Apply config to wandb
-        wandb.init(project="craft-icdar", entity="gmuffiness", name=args.yaml)
-        wandb.config.update(config)
+        if config["wandb_opt"]:
+            wandb.init(project="craft-icdar", entity="gmuffiness", name=args.yaml)
+            wandb.config.update(config)
         print("-"*20+" Options "+"-"*20)
         print(yaml.dump(config))
         print("-" * 40)

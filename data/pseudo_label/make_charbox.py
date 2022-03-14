@@ -1,9 +1,11 @@
 import os
+import random
 
 import numpy as np
 import cv2
 import torch
 
+from skimage.segmentation import watershed
 from data import imgproc
 from data.pseudo_label.watershed import exec_watershed_by_version
 from utils.decorator_wraps import time_printer
@@ -66,10 +68,9 @@ class PseudoCharBoxBuilder:
     def inference_word_box(self, net, gpu, word_image):
         if net.training:
             net.eval()
-
-        if gpu == 0:
+        # if gpu == 0:
             # print(f'In supervision model GPU {gpu} : {net.conv_cls[-1].weight.reshape(2, -1)}')
-            pass
+            # pass
 
         with torch.no_grad():
             word_img_torch = torch.from_numpy(
@@ -90,7 +91,6 @@ class PseudoCharBoxBuilder:
         region_score,
         watershed_box,
         pseudo_char_bbox,
-        color_markers,
         img_name,
     ):
         word_img_h, word_img_w, _ = word_image.shape
@@ -130,7 +130,6 @@ class PseudoCharBoxBuilder:
             [
                 word_image[:, :, ::-1],
                 region_score_color,
-                color_markers,
                 word_img_cp1[:, :, ::-1],
                 word_img_cp2[:, :, ::-1],
                 pseudo_gt_region_score,
@@ -142,10 +141,15 @@ class PseudoCharBoxBuilder:
             os.makedirs(os.path.dirname(self.vis_test_dir))
         cv2.imwrite(
             os.path.join(
-                self.vis_test_dir, "{}_{}".format(img_name, "pseudo_char_bbox.jpg")
+                self.vis_test_dir, "{}_{}".format(img_name, f"pseudo_char_bbox_{random.randint(0,100)}.jpg")
             ),
             vis_result,
         )
+        # print(self.vis_test_dir)
+        # print(os.path.join(
+        #         self.vis_test_dir, "{}_{}".format(img_name, f"pseudo_char_bbox_{random.randint(0,100)}.jpg")
+        #     ))
+        # print('pseudo_char_bbox img saved')
 
     def clip_into_boundary(self, box, bound):
         if len(box) == 0:
@@ -160,11 +164,12 @@ class PseudoCharBoxBuilder:
             return 0.0
         return (real_len - min(real_len, abs(real_len - pseudo_len))) / real_len
 
-    def split_word_equal_gap(self, word_img_w, word_img_h, word, bboxes):
+    def split_word_equal_gap(self, word_img_w, word_img_h, word):
         width = word_img_w
         height = word_img_h
 
         width_per_char = width / len(word)
+        bboxes = []
         for j, char in enumerate(word):
             if char == " ":
                 continue
@@ -176,6 +181,51 @@ class PseudoCharBoxBuilder:
         bboxes = np.array(bboxes, np.float32)
         return bboxes
 
+    def segment_region_score(self, region_score, MI, ratio_hw):
+        region_score = np.float32(region_score) / 255
+        fore = np.uint8(region_score > 0.75)
+        back = np.uint8(region_score < 0.05)
+        unknown = 1 - (fore + back)
+        ret, markers = cv2.connectedComponents(fore)
+        markers += 1
+        markers[unknown == 1] = 0
+
+        labels = watershed(-region_score, markers)
+        # region_score_color = cv2.applyColorMap(np.uint8(region_score * 255), cv2.COLORMAP_JET)
+        # labels_vis = cv2.applyColorMap(np.uint8(markers / (labels.max() / 255)), cv2.COLORMAP_JET)
+        # markers_vis = cv2.applyColorMap(np.uint8(markers / (markers.max() / 255)), cv2.COLORMAP_JET)
+        # cv2.imwrite('/nas/home/gmuffiness/result/region_score_temp.png', region_score_color)
+        # cv2.imwrite('/nas/home/gmuffiness/result/labels_temp.png', labels_vis)
+        # cv2.imwrite('/nas/home/gmuffiness/result/markers_temp.png', markers_vis)
+        char_boxes = []
+        centers = []
+        boxes = []
+        for label in range(2, ret + 1):
+            y, x = np.where(labels == label)
+            x_max = x.max()
+            y_max = y.max()
+            x_min = x.min()
+            y_min = y.min()
+            box = [[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]]
+            # import ipdb; ipdb.set_trace()
+            box = np.array(box)
+            # import ipdb; ipdb.set_trace()
+            # box[:, 0] *= ratio_hw[1]
+            # box[:, 1] *= ratio_hw[0]
+            box *= 2
+            boxes.append(box)
+            # w = x_max - x_min + 1
+            # h = y_max - y_min + 1
+            # centers.append([(x_min + x_max) / 2, (y_min + y_max) / 2])
+            # cords = np.array([[x_min, x_max, x_max, x_min], [y_min, y_min, y_max, y_max]]) / 0.5
+            # cords[0, :] /= ratio_hw[1]
+            # cords[1, :] /= ratio_hw[0]
+            # import ipdb; ipdb.set_trace()
+            # char_box = np.dot(MI, np.concatenate((cords, np.array([[1, 1, 1, 1]])), axis=0))
+            # char_boxes.append((char_box / np.tile(char_box[2, :], (3, 1)))[:2, :])
+        # import ipdb; ipdb.set_trace()
+        # return np.array(char_boxes).transpose((0,2,1)) if char_boxes else []
+        return np.array(boxes, dtype=np.float32)
     def build_char_box(self, net, gpu, image, word_bbox, word, img_name=""):
         word_image, M = self.crop_image_by_bbox(image, word_bbox)
         real_word_without_space = word.replace("\s", "")
@@ -192,9 +242,13 @@ class PseudoCharBoxBuilder:
         region_score_rgb = cv2.resize(region_score, (word_img_w, word_img_h))
         region_score_rgb = cv2.cvtColor(region_score_rgb, cv2.COLOR_GRAY2RGB)
 
-        pseudo_char_bbox, color_markers = exec_watershed_by_version(
-            self.watershed_ver, region_score_rgb, word_image, self.pseudo_vis_opt
-        )
+        # pseudo_char_bbox, color_markers = exec_watershed_by_version(
+        #     self.watershed_ver, region_score_rgb, word_image, self.pseudo_vis_opt
+        # )
+
+        M_inv = np.linalg.pinv(M)
+        pseudo_char_bbox = self.segment_region_score(region_score, M_inv, (word_img_h, word_img_w))
+
         # For visualize only
         watershed_box = pseudo_char_bbox.copy()
 
@@ -206,7 +260,7 @@ class PseudoCharBoxBuilder:
 
         if confidence <= 0.5:  # confidence 값들이 낮은 경우 등분하고, 이떄 confidence 0.5
             pseudo_char_bbox = self.split_word_equal_gap(
-                word_img_w, word_img_h, word, pseudo_char_bbox
+                word_img_w, word_img_h, word
             )
             confidence = 0.5
 
@@ -216,7 +270,6 @@ class PseudoCharBoxBuilder:
                 region_score,
                 watershed_box,
                 pseudo_char_bbox,
-                color_markers,
                 img_name,
             )
 
