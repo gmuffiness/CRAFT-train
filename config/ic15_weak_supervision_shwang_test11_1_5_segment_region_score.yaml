@@ -1,0 +1,90 @@
+results_dir: "./exp/"
+#vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
+vis_test_dir: "/nas/home/gmuffiness/result/debug_ic15_weak_supervision_charbox_backtime"
+wandb_opt: True
+
+data_dir:
+  synthtext: "/data/SynthText/"
+  synthtext_gt: NULL
+  ic15: "/data/ICDAR2015/"
+  ic15_gt: NULL
+#  ic15_gt: "/data/ICDAR2015_official_supervision_v3/0"
+  ic13: "/data/ICDAR2013/"
+
+train:
+  ckpt_path: "/nas/home/jihyokim/jm/CRAFT-Refactoring/config/shwang_test26_CRAFT_clr_amp_60000.pth"
+  batch_size: 48
+  st_iter: 0
+  end_iter: 50000
+  lr: 0.0001
+  lr_decay: 15000
+  gamma: 0.2
+  weight_decay: 0.00001
+  num_workers: 4
+  amp: True
+  loss: 2
+  neg_rto: 0.3
+  n_min_neg: 5000
+  data:
+    vis_opt: False
+    pseudo_vis_opt: False
+    output_size: 768
+    enlarge_region : [0.5, 0.5] # x axis, y axis
+    enlarge_affinity: [0., 0.5]
+    gauss_init_size: 200
+    gauss_sigma: 40
+    watershed_version: "skimage"
+    syn_aug:
+      random_scale:
+        range: [1.0, 1.5, 2.0]
+        option: False
+      random_rotate:
+        max_angle: 20
+        option: False
+      random_crop:
+        version: "random_resize_crop"
+        scale: [0.333, 1.0]
+        ratio: [0.75, 1.333]
+        option: True
+      random_horizontal_flip:
+        option: False
+      random_colorjitter:
+        brightness: 0.2
+        contrast: 0.2
+        saturation: 0.2
+        hue: 0.2
+        option: True
+    icdar_aug:
+      random_scale:
+        range: [ 1.0, 1.5, 2.0 ]
+        option: False
+      random_rotate:
+        max_angle: 20
+        option: True
+      random_crop:
+        version: "random_resize_crop"
+        scale: [0.03, 0.4]
+        ratio: [0.75, 1.33]
+        rnd_threshold: 1.0
+        option: True
+      random_horizontal_flip:
+        option: False
+      random_colorjitter:
+        brightness: 0.2
+        contrast: 0.2
+        saturation: 0.2
+        hue: 0.2
+        option: True
+
+test:
+  test_data_dir: "/data/ICDAR2015/"
+  trained_model: null
+  text_threshold: 0.85 # ICDAR2015 0.85
+  low_text: 0.5 # ICDAR2015 0.5
+  link_threshold: 0.2 # ICDAR2013: 0.2
+  cuda: True
+  canvas_size:
+    icdar2013: 960
+    icdar2015: 2240
+  mag_ratio: 1.75
+  poly: False
