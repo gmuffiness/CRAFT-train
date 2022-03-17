@@ -77,7 +77,7 @@ class GaussianBuilder(object):
         return warped_gaussian_map, width, height
 
     def add_gaussian_map_to_score_map(
-        self, score_map, bbox, enlarge_size, map_type=None
+        self, score_map, bbox, enlarge_size, horizontal_text_bool, map_type=None
     ):
         """
         Mapping 2D Gaussian to the character box coordinates of the score_map.
@@ -88,6 +88,8 @@ class GaussianBuilder(object):
         :type bbox: np.float32
         :param enlarge_size: Enlarge size of gaussian map to fit character shape
         :type enlarge_size: list of enlarge size [x dim, y dim]
+        :param horizontal_text_bool: Flag that bbox is horizontal text or not
+        :type horizontal_text_bool: bool
         :param map_type: Whether map's type is "region" | "affinity"
         :type map_type: str
         :return score_map: score map that all 2D gaussian put on character box
@@ -98,8 +100,7 @@ class GaussianBuilder(object):
         # if map_type == "region":
         #     # TODO : edit enlargebox output type from int 32 to float32
         #     bbox = enlargebox(bbox, map_h, map_w, enlarge_size)
-
-        bbox = enlargebox(bbox, map_h, map_w, enlarge_size)
+        bbox = enlargebox(bbox, map_h, map_w, enlarge_size, horizontal_text_bool)
 
         # If any one point of character bbox is out of range, don't put in on map
         # TODO : 나중에 수정?
@@ -146,8 +147,7 @@ class GaussianBuilder(object):
         affinity_box = np.array([tl, bl, tr, br]).astype(np.float32)
         return affinity_box
 
-    def generate_region(self, img_h, img_w, word_level_char_bbox):
-
+    def generate_region(self, img_h, img_w, word_level_char_bbox, horizontal_text_bools):
         region_map = np.zeros([img_h, img_w], dtype=np.float32)
         for i in range(len(word_level_char_bbox)): # shape : [word_num, [char_num_in_one_word, 4, 2]]
             for j in range(len(word_level_char_bbox[i])):
@@ -155,11 +155,12 @@ class GaussianBuilder(object):
                     region_map,
                     word_level_char_bbox[i][j].copy(),
                     self.enlarge_region,
+                    horizontal_text_bools[i],
                     map_type="region",
                 )
         return region_map
 
-    def generate_affinity(self, img_h, img_w, word_level_char_bbox):
+    def generate_affinity(self, img_h, img_w, word_level_char_bbox, horizontal_text_bools):
 
         affinity_map = np.zeros([img_h, img_w], dtype=np.float32)
         all_affinity_bbox = []
@@ -173,6 +174,7 @@ class GaussianBuilder(object):
                     affinity_map,
                     affinity_bbox.copy(),
                     self.enlarge_affinity,
+                    horizontal_text_bools[i],
                     map_type="affinity",
                 )
                 all_affinity_bbox.append(np.expand_dims(affinity_bbox, axis=0))

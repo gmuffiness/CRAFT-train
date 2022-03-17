@@ -1,6 +1,6 @@
 results_dir: "./exp/"
 #vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
-vis_test_dir: "/nas/home/gmuffiness/result/debug_ic15_weak_supervision_charbox_backtime"
+vis_test_dir: "/nas/home/gmuffiness/result/debug_ic15_weak_supervision"
 wandb_opt: True
 
 data_dir:
@@ -68,7 +68,7 @@ train:
         rnd_threshold: 1.0
         option: True
       random_horizontal_flip:
-        option: False
+        option: True
       random_colorjitter:
         brightness: 0.2
         contrast: 0.2
@@ -78,8 +78,11 @@ train:
 
 test:
   test_data_dir: "/data/ICDAR2015/"
+  vis_opt: False
   trained_model: null
-  text_threshold: 0.85 # ICDAR2015 0.85
+#  trained_model: "/nas/home/gmuffiness/workspace/ocr_related/daintlab-CRAFT-Reimplementation/clean-code/exp/ic15_weak_supervision_shwang_test11_1_5_segment_region_score/CRAFT_clr_amp_25000.pth"
+#  trained_model: "/nas/home/gmuffiness/workspace/ocr_related/daintlab-CRAFT-Reimplementation/clean-code/exp/ic15_train_with_gt/CRAFT_clr_amp_49500.pth"
+  text_threshold: 0.75 # ICDAR2015 0.85
   low_text: 0.5 # ICDAR2015 0.5
   link_threshold: 0.2 # ICDAR2013: 0.2
   cuda: True

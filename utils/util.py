@@ -97,7 +97,7 @@ def saveImage(imagename, vis_dir, image, bboxes, affi_bboxes, region_scores, aff
         os.makedirs(os.path.dirname(outpath))
 
     cv2.imwrite(outpath, output)
-    # print(f'Logging original image into {outpath}')
+    print(f'Logging original image into {outpath}')
 
 
 def save_parser(args):

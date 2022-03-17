@@ -1,10 +1,12 @@
 import os
 import random
+import math
 
 import numpy as np
 import cv2
 import torch
 
+from PIL import Image
 from skimage.segmentation import watershed
 from data import imgproc
 from data.pseudo_label.watershed import exec_watershed_by_version
@@ -19,9 +21,11 @@ class PseudoCharBoxBuilder:
         self.vis_test_dir = vis_test_dir
         self.pseudo_vis_opt = pseudo_vis_opt
         self.gaussian_builder = gaussian_builder
+        self.cnt = 0
+        self.flag = False
 
     # TODO: arbitrary shape text 를 정해진 규격으로 warping 하는 과정 조금 더 정교하게 수정 필요?
-    def crop_image_by_bbox(self, image, box):
+    def crop_image_by_bbox(self, image, box, img_name, word):
         w = max(
             int(np.linalg.norm(box[0] - box[1])), int(np.linalg.norm(box[2] - box[3]))
         )
@@ -29,7 +33,13 @@ class PseudoCharBoxBuilder:
             int(np.linalg.norm(box[0] - box[3])), int(np.linalg.norm(box[1] - box[2]))
         )
 
-        if h > w * 1.5:
+        word_ratio = h / w
+        one_char_ratio = (min(h, w) / (max(h, w) / len(word)))
+
+        if word_ratio > 2 or (word_ratio > 1.6 and one_char_ratio > 2.4):
+            # print(word_ratio, one_char_ratio, word)
+            # print('flag1: 세로 WORD')
+            horizontal_text_bool = False
             long_side = h
             short_side = w
             M = cv2.getPerspectiveTransform(
@@ -45,7 +55,10 @@ class PseudoCharBoxBuilder:
                     )
                 ),
             )
+            self.flag = True
         else:
+            # print('flag2: 가로 WORD')
+            horizontal_text_bool = True
             long_side = w
             short_side = h
             M = cv2.getPerspectiveTransform(
@@ -61,9 +74,10 @@ class PseudoCharBoxBuilder:
                     )
                 ),
             )
+            self.flag = False
 
         warped = cv2.warpPerspective(image, M, (long_side, short_side))
-        return warped, M
+        return warped, M, horizontal_text_bool
 
     def inference_word_box(self, net, gpu, word_image):
         if net.training:
@@ -117,10 +131,11 @@ class PseudoCharBoxBuilder:
 
         # NOTE: Just for visualize, put gaussian map on char box
         pseudo_gt_region_score = self.gaussian_builder.generate_region(
-            word_img_h, word_img_w, [_pseudo_char_bbox]
+            word_img_h, word_img_w, [_pseudo_char_bbox], [True]
         )
+
         pseudo_gt_region_score = cv2.applyColorMap(
-            pseudo_gt_region_score.astype("uint8"), cv2.COLORMAP_JET
+            (pseudo_gt_region_score * 255).astype("uint8"), cv2.COLORMAP_JET
         )
 
         overlay_img = cv2.addWeighted(
@@ -226,8 +241,23 @@ class PseudoCharBoxBuilder:
         # import ipdb; ipdb.set_trace()
         # return np.array(char_boxes).transpose((0,2,1)) if char_boxes else []
         return np.array(boxes, dtype=np.float32)
+
+    def cal_angle(self, v1):
+        theta = np.arccos(min(1, v1[0] / (np.linalg.norm(v1) + 10e-8)))
+        return 2 * math.pi - theta if v1[1] < 0 else theta
+
+    def clockwise_sort(self, points):
+        # return 4x2 [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] ndarray
+        v1, v2, v3, v4 = points
+        center = (v1 + v2 + v3 + v4) / 4
+        theta = np.array([self.cal_angle(v1 - center), self.cal_angle(v2 - center), \
+                          self.cal_angle(v3 - center), self.cal_angle(v4 - center)])
+        index = np.argsort(theta)
+        return np.array([v1, v2, v3, v4])[index, :]
+
     def build_char_box(self, net, gpu, image, word_bbox, word, img_name=""):
-        word_image, M = self.crop_image_by_bbox(image, word_bbox)
+        # print(img_name, word)
+        word_image, M, horizontal_text_bool = self.crop_image_by_bbox(image, word_bbox, img_name, word)
         real_word_without_space = word.replace("\s", "")
         real_char_len = len(real_word_without_space)
         # Fix height to 64 --> https://github.com/clovaai/CRAFT-pytorch/issues/18
@@ -264,17 +294,16 @@ class PseudoCharBoxBuilder:
             )
             confidence = 0.5
 
-        if self.pseudo_vis_opt:
-            self.visualize_pseudo_label(
-                word_image,
-                region_score,
-                watershed_box,
-                pseudo_char_bbox,
-                img_name,
-            )
+        # if self.pseudo_vis_opt and self.flag:
+        #     self.visualize_pseudo_label(
+        #         word_image,
+        #         region_score,
+        #         watershed_box,
+        #         pseudo_char_bbox,
+        #         img_name,
+        #     )
 
         if len(pseudo_char_bbox) != 0:
-            pseudo_char_bbox = np.array(pseudo_char_bbox)
             index = np.argsort(pseudo_char_bbox[:, 0, 0])
             pseudo_char_bbox = pseudo_char_bbox[index]
 
@@ -288,4 +317,4 @@ class PseudoCharBoxBuilder:
 
         pseudo_char_bbox = self.clip_into_boundary(pseudo_char_bbox, image.shape)
 
-        return pseudo_char_bbox, confidence
+        return pseudo_char_bbox, confidence, horizontal_text_bool

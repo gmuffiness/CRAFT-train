@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 from tqdm import tqdm
-#import wandb
+import wandb
 import yaml
 
 from config.load_config import load_yaml, DotDict
@@ -21,7 +21,7 @@ from utils.inference_boxes import (
     load_synthtext_gt,
 )
 from utils.util import copyStateDict
-
+from data import imgproc
 
 def save_result_synth(img_file, img, pre_output, pre_box, gt_box=None, result_dir=""):
 
@@ -72,7 +72,6 @@ def save_result_2015(img_file, img, pre_output, pre_box, gt_box, result_dir):
     img_copy = img.copy()
     region = pre_output[0]
     affinity = pre_output[1]
-
     # make result file list
     filename, file_ext = os.path.splitext(os.path.basename(img_file))
 
@@ -103,6 +102,12 @@ def save_result_2015(img_file, img, pre_output, pre_box, gt_box, result_dir):
 
     overlay_image_path = result_dir + "/res_" + filename + "_box.jpg"
     cv2.imwrite(overlay_image_path, overlay_img)
+
+    rg_score_image = np.uint8(pre_output[0] * 255)
+    affi_score_image = np.uint8(pre_output[1] * 255)
+    score_image = np.hstack([rg_score_image, affi_score_image])
+    score_img_path = result_dir + "/res_" + filename + "_score_grayscale.jpg"
+    cv2.imwrite(score_img_path, score_image)
 
 
 def save_result_2013(img_file, img, pre_output, pre_box, gt_box=None, result_dir=""):
@@ -155,8 +160,11 @@ def overlay(image, region, affinity, single_img_bbox):
     region_score = cv2.resize(region, (width, height))
     affinity_score = cv2.resize(affinity, (width, height))
 
-    overlay_region = cv2.addWeighted(image.copy(), 0.4, region_score, 0.6, 5)
-    overlay_aff = cv2.addWeighted(image.copy(), 0.4, affinity_score, 0.6, 5)
+    region_score_color = imgproc.cvt2HeatmapImg(region_score)
+    affinity_score_color = imgproc.cvt2HeatmapImg(affinity_score)
+
+    overlay_region = cv2.addWeighted(image.copy(), 0.4, region_score_color, 0.6, 5)
+    overlay_aff = cv2.addWeighted(image.copy(), 0.4, affinity_score_color, 0.6, 5)
 
     # draw
     boxed_img = image.copy()
@@ -280,24 +288,32 @@ def main(model_path, config, evaluator, result_dir, viz=True):
 
         # -------------------------------------------------------------------------------------------------------------#
 
-        viz_test(
-            image,
-            score_text,
-            pre_box=polys,
-            gt_box=total_imgs_bboxes_gt[k],
-            img_name=img_path,
-            result_dir=result_dir,
-            test_folder_name=test_folder_name,
-        )
+        if config.test.vis_opt:
+            viz_test(
+                image,
+                score_text,
+                pre_box=polys,
+                gt_box=total_imgs_bboxes_gt[k],
+                img_name=img_path,
+                result_dir=result_dir,
+                test_folder_name=test_folder_name,
+            )
 
     # ------------------------------------------------------------------------------------------------------------------#
 
     # print('Predict bbox points completed.')
     results = []
-    for gt, pred in zip(total_imgs_bboxes_gt, total_img_bboxes_pre):
-        results.append(evaluator.evaluate_image(gt, pred))
+    error_idx = []
+    for i, (gt, pred) in enumerate(zip(total_imgs_bboxes_gt, total_img_bboxes_pre)):
+        perSampleMetrics_dict = evaluator.evaluate_image(gt, pred)
+        results.append(perSampleMetrics_dict)
+        # if perSampleMetrics_dict["detCare"] != perSampleMetrics_dict["gtCare"]:
+        #     error_idx.append(str(i))
     metrics = evaluator.combine_results(results)
     print(metrics)
+
+    # with open(os.path.join(result_dir, "error_idx.txt"), "w") as f:
+    #     f.write(" ".join(error_idx))
 
     # wandb.log({"precision": metrics['precision'], "recall": metrics['recall'], "hmean": metrics['hmean']})
     return metrics
@@ -309,7 +325,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--yaml",
         "--yaml_file_name",
-        default="./exp/synthtext/",
+        default="ic15_train",
         type=str,
         help="Load configuration",
     )
@@ -320,12 +336,16 @@ if __name__ == "__main__":
     config = DotDict(config)
 
     # Make result_dir
-    res_dir = os.path.join(os.path.join("exp", args.yaml), "result")
+    # res_dir = os.path.join(os.path.join("exp", args.yaml), "result")
+    # args.yaml = "ic15_weak_supervision_shwang_test11_1_5_segment_region_score"
+    res_dir = os.path.join(os.path.join("exp", args.yaml), config.test.trained_model.split("_")[-1][:-4])
     config.results_dir = res_dir
 
     # wandb
-    # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
-    # wandb.config.update(config)
+    if config["wandb_opt"]:
+        wandb.init(project="craft-icdar", entity="gmuffiness", name=args.yaml)
+        # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
+        wandb.config.update(config)
 
     evaluator = DetectionIoUEvaluator()
     main(config.test.trained_model, config, evaluator, res_dir)

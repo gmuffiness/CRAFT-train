@@ -40,10 +40,14 @@ def sidePoint(Apoint, Bpoint, h, w, placehold, enlarge_size):
     elif placehold == 'leftBottom':
         x1 = max(0, Apoint[0] - XaxisIncreaseDistance)
         y1 = min(h, Apoint[1] + YaxisIncreaseDistance)
-
     return int(x1), int(y1)
 
-def enlargebox(box, h, w, enlarge_size):
+def enlargebox(box, h, w, enlarge_size, horizontal_text_bool):
+
+    if not horizontal_text_bool:
+        enlarge_size = (enlarge_size[1], enlarge_size[0])
+
+    box = np.roll(box, -np.argmin(box.sum(axis=1)), axis=0)
 
     Apoint, Bpoint, Cpoint, Dpoint = box
     K1, B1 = lineBiasAndK(box[0], box[2])

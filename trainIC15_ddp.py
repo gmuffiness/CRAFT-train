@@ -213,6 +213,7 @@ class Trainer(object):
 
         print("================================ Train start ================================")
         while train_step < whole_training_step:
+            trn_icdar15_sampler.set_epoch(train_step)
             for index, (
                 icdar_image,
                 icdar_region_label,

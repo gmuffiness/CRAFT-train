@@ -23,6 +23,7 @@ from data.imgaug import (
 )
 from data.pseudo_label.make_charbox import PseudoCharBoxBuilder
 from utils.util import saveInput, saveImage
+from data.boxEnlarge import enlargebox
 from utils.decorator_wraps import time_printer
 
 class SynthTextDataSet(Dataset):
@@ -65,7 +66,7 @@ class SynthTextDataSet(Dataset):
         return img_names, img_bbox, img_words
 
     def make_gt_score(self, index):
-
+        # print(self.img_names[index][0])
         img_path = os.path.join(self.data_dir, self.img_names[index][0])
         image = cv2.imread(img_path, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -83,7 +84,9 @@ class SynthTextDataSet(Dataset):
         words = [word for word in words if len(word) > 0]
 
         word_level_char_bbox = []
+        horizontal_text_bools = []
         char_idx = 0
+
         for i in range(len(words)):
             length_of_word = len(words[i])
             word_bbox = all_char_bbox[char_idx : char_idx + length_of_word]
@@ -92,11 +95,26 @@ class SynthTextDataSet(Dataset):
             word_bbox = np.array(word_bbox)
             word_level_char_bbox.append(word_bbox)
 
+            # w = max(
+            #     int(np.linalg.norm(word_bbox[0] - word_bbox[1])), int(np.linalg.norm(word_bbox[2] - word_bbox[3]))
+            # )
+            # h = max(
+            #     int(np.linalg.norm(word_bbox[0] - word_bbox[3])), int(np.linalg.norm(word_bbox[1] - word_bbox[2]))
+            # )
+            # word_ratio = h / w
+            # one_char_ratio = (min(h, w) / (max(h, w) / length_of_word))
+            #
+            # if word_ratio > 2 or (word_ratio > 1.6 and one_char_ratio > 2.4):
+            #     horizontal_text_bool = False
+            # else:
+            #     horizontal_text_bool = True
+            # horizontal_text_bools.append(horizontal_text_bool)
+
         region_score = self.gaussian_builder.generate_region(
-            img_h, img_w, word_level_char_bbox
+            img_h, img_w, word_level_char_bbox, horizontal_text_bools=[True for _ in range(len(words))]
         )
         affinity_score, _ = self.gaussian_builder.generate_affinity(
-            img_h, img_w, word_level_char_bbox
+            img_h, img_w, word_level_char_bbox, horizontal_text_bools=[True for _ in range(len(words))]
         )
 
         return (
@@ -228,8 +246,10 @@ class ICDAR2015(Dataset):
         self.vis_test_dir = vis_test_dir
         self.vis_opt = vis_opt
         self.pseudo_vis_opt = pseudo_vis_opt
-        self.vis_index = [189, 41, 723, 251, 232, 115, 634, 951, 247, 25, 400, 704, 619, 305, 423, 20, 31]
-        # self.vis_index = list(range(1000))
+        # self.vis_index = [189, 41, 723, 251, 232, 115, 634, 951, 247, 25, 400, 704, 619, 305, 423, 20, 31, 61, 73]
+        # self.vis_index = [61, 73, 77, 88, 94, 126,131,136,163,208,245,274,283,297,337,354,356,359,371,372,378,410,435,443,450]
+        self.temp_idx = 0
+        self.vis_index = list(range(1000))
         self.img_dir = os.path.join(data_dir, "ch4_training_images")
         self.img_gt_box_dir = os.path.join(
             data_dir, "ch4_training_localization_transcription_gt"
@@ -274,30 +294,32 @@ class ICDAR2015(Dataset):
 
         word_level_char_bbox = []
         do_care_words = []
+        horizontal_text_bools = []
+        trunc_mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.float32)
 
         if len(word_bboxes) == 0:
-            return image, word_level_char_bbox, do_care_words, confidence_mask
-
+            return image, word_level_char_bbox, do_care_words, confidence_mask, horizontal_text_bools
+        _word_bboxes = word_bboxes.copy()
         for i in range(len(word_bboxes)):
+            # _word_bboxes[i] = enlargebox(_word_bboxes[i], image.shape[0], image.shape[1], [0.5, 0.5])
+            cv2.fillPoly(trunc_mask, [np.int32(word_bboxes[i])], 1.0)
             # TODO: fill confidence mask 할 때, 더 낮은 값이 들어가도록 수정?
             if words[i] == "###" or len(words[i].strip()) == 0:
-                cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], 0)
+                cv2.fillPoly(confidence_mask, [np.int32(_word_bboxes[i])], 0)
                 continue
 
-            pseudo_char_bbox, confidence = self.pseudo_charbox_builder.build_char_box(
+            pseudo_char_bbox, confidence, horizontal_text_bool = self.pseudo_charbox_builder.build_char_box(
                 self.net, self.gpu, image, word_bboxes[i], words[i], img_name=img_name
             )
-            # pseudo_char_bbox, confidence = build_char_box(
-            #     self.net, image, word_bboxes[i], words[i], img_name=img_name
-            # )
-            # pseudo_char_bbox = []
-            # confidence=1.0
 
-            cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], confidence)
+            cv2.fillPoly(confidence_mask, [np.int32(_word_bboxes[i])], confidence)
             do_care_words.append(words[i])
             word_level_char_bbox.append(pseudo_char_bbox)
+            horizontal_text_bools.append(horizontal_text_bool)
+            # if len(horizontal_text_bools) != len(word_level_char_bbox):
+            #     import ipdb; ipdb.set_trace()
 
-        return image, word_level_char_bbox, do_care_words, confidence_mask
+        return image, word_level_char_bbox, do_care_words, confidence_mask, horizontal_text_bools, trunc_mask
 
     def make_pseudo_gt_score(self, index):
         """
@@ -309,7 +331,7 @@ class ICDAR2015(Dataset):
         :rtype word_level_char_bbox: np.float32
         :rtype words: list
         """
-        (image, word_level_char_bbox, words, confidence_mask,) = self.load_data(index)
+        (image, word_level_char_bbox, words, confidence_mask, horizontal_text_bools, trunc_mask) = self.load_data(index)
         img_h, img_w, _ = image.shape
 
         if len(word_level_char_bbox) == 0:
@@ -318,11 +340,16 @@ class ICDAR2015(Dataset):
             all_affinity_bbox = []
         else:
             region_score = self.gaussian_builder.generate_region(
-                img_h, img_w, word_level_char_bbox
+                img_h, img_w, word_level_char_bbox, horizontal_text_bools
             )
             affinity_score, all_affinity_bbox = self.gaussian_builder.generate_affinity(
-                img_h, img_w, word_level_char_bbox
+                img_h, img_w, word_level_char_bbox, horizontal_text_bools
             )
+
+        # Truncate region, affinity scores out of GT bounding box area
+        trunc_mask = trunc_mask.astype(np.float32)
+        region_score = region_score * trunc_mask
+        affinity_score = affinity_score * trunc_mask
 
         return (
             image,
@@ -452,13 +479,16 @@ class ICDAR2015(Dataset):
 
         return np.array(image), region_score, affinity_score, confidence_mask
 
-    def resize_to_half(self, ground_truth):
-        return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2))
+    def resize_to_half(self, ground_truth, interpolation):
+        return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2), interpolation=interpolation)
 
     def __len__(self):
         return len(self.img_names)
 
     def __getitem__(self, index):
+        # index = self.img_names.index(f'img_{self.vis_index[self.temp_idx]}.jpg')
+        # self.temp_idx += 1
+        # index = self.img_names.index('img_274.jpg')
         if self.saved_gt_dir is None:
             (
                 image,
@@ -508,9 +538,9 @@ class ICDAR2015(Dataset):
                 confidence_mask,
             )
 
-        region_score = self.resize_to_half(region_score)
-        affinity_score = self.resize_to_half(affinity_score)
-        confidence_mask = self.resize_to_half(confidence_mask)
+        region_score = self.resize_to_half(region_score, interpolation=cv2.INTER_AREA)
+        affinity_score = self.resize_to_half(affinity_score, interpolation=cv2.INTER_AREA)
+        confidence_mask = self.resize_to_half(confidence_mask, interpolation=cv2.INTER_NEAREST)
 
         image = imgproc.normalizeMeanVariance(
             np.array(image), mean=(0.485, 0.456, 0.406), variance=(0.229, 0.224, 0.225)

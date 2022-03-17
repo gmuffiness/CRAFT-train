@@ -145,12 +145,14 @@ def random_scale(images, word_level_char_bbox, scale_range):
 
 def random_rotate(images, max_angle):
     angle = random.random() * 2 * max_angle - max_angle
-
     for i in range(len(images)):
         img = images[i]
         w, h = img.shape[:2]
         rotation_matrix = cv2.getRotationMatrix2D((h / 2, w / 2), angle, 1)
-        img_rotation = cv2.warpAffine(img, rotation_matrix, (h, w))
+        if i == len(images) - 1:
+            img_rotation = cv2.warpAffine(img, M=rotation_matrix, dsize=(h, w), flags=cv2.INTER_NEAREST)
+        else:
+            img_rotation = cv2.warpAffine(img, rotation_matrix, (h, w))
         images[i] = img_rotation
     return images
 
