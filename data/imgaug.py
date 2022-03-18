@@ -43,6 +43,37 @@ def random_resize_crop_synth(augment_targets, size):
 
     return augment_targets
 
+
+def random_resize_crop_ai(augment_targets, scale, ratio, size):
+    # --------------------------------------------------------------------------------------------------------------#
+    image, region_score, affinity_score, confidence_mask = augment_targets
+
+    image = Image.fromarray(image)
+    region_score = Image.fromarray(region_score)
+    affinity_score = Image.fromarray(affinity_score)
+    confidence_mask = Image.fromarray(confidence_mask)
+
+
+    i, j, h, w = RandomResizedCrop.get_params(image, scale=scale, ratio=ratio)
+
+    image = resized_crop(image, i, j, h, w, size=(size, size))
+    region_score = resized_crop(region_score, i, j, h, w, (size, size))
+    affinity_score = resized_crop(affinity_score, i, j, h, w, (size, size))
+    confidence_mask = resized_crop(confidence_mask, i, j, h, w, (size, size),
+                                   interpolation=InterpolationMode.NEAREST)
+
+    image = np.array(image)
+    region_score = np.array(region_score)
+    affinity_score = np.array(affinity_score)
+    confidence_mask = np.array(confidence_mask)
+    augment_targets = [image, region_score, affinity_score, confidence_mask]
+    # --------------------------------------------------------------------------------------------------------------#
+
+    return augment_targets
+
+
+
+
 def random_resize_crop(augment_targets, scale, ratio, size, threshold):
     # --------------------------------------------------------------------------------------------------------------#
     image, region_score, affinity_score, confidence_mask = augment_targets
@@ -52,10 +83,13 @@ def random_resize_crop(augment_targets, scale, ratio, size, threshold):
     affinity_score = Image.fromarray(affinity_score)
     confidence_mask = Image.fromarray(confidence_mask)
 
+
     if random.random() < threshold:
         i, j, h, w = RandomResizedCrop.get_params(image, scale=scale, ratio=ratio)
     else:
         i, j, h, w = RandomResizedCrop.get_params(image, scale=(1.0,1.0), ratio=(1.0,1.0))
+
+
 
     image = resized_crop(image, i, j, h, w, size=(size, size))
     region_score = resized_crop(region_score, i, j, h, w, (size, size))
