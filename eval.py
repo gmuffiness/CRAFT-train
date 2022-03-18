@@ -336,9 +336,9 @@ if __name__ == "__main__":
     config = DotDict(config)
 
     # Make result_dir
-    # res_dir = os.path.join(os.path.join("exp", args.yaml), "result")
+    res_dir = os.path.join(os.path.join("exp", args.yaml), "result")
     # args.yaml = "ic15_weak_supervision_shwang_test11_1_5_segment_region_score"
-    res_dir = os.path.join(os.path.join("exp", args.yaml), config.test.trained_model.split("_")[-1][:-4])
+    # res_dir = os.path.join(os.path.join("exp", args.yaml), config.test.trained_model.split("_")[-1][:-4])
     config.results_dir = res_dir
 
     # wandb
