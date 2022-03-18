@@ -116,7 +116,8 @@ class Trainer(object):
     def get_load_param(self, gpu):
 
         if self.config.train.ckpt_path is not None:
-            map_location = {'cuda:%d' % 0: 'cuda:%d' % gpu}
+            # map_location = {'cuda:%d' % 0: 'cuda:%d' % gpu}
+            map_location = 'cuda:%d' % gpu
             param = torch.load(self.config.train.ckpt_path, map_location=map_location)
         else:
             param = None
@@ -148,7 +149,12 @@ class Trainer(object):
         # SUPERVISION model
         supervision_model = CRAFT(pretrained=True, amp=self.config.train.amp)
         if self.config.train.ckpt_path is not None:
-            supervision_model.load_state_dict(copyStateDict(self.net_param['craft']))
+            # supervision_model.load_state_dict(copyStateDict(self.net_param['craft']))
+            supervision_param = self.get_load_param(self.gpu+4)
+            supervision_model.load_state_dict(copyStateDict(supervision_param['craft']))
+            supevision_model = supervision_model.to(f'cuda:{self.gpu+4}')
+
+        print(f'Supervision model loading on : gpu {self.gpu+4}')
 
         # TRAIN model
         craft = CRAFT(pretrained=True, amp=self.config.train.amp)
@@ -167,7 +173,7 @@ class Trainer(object):
         batch_syn = iter(trn_syn_loader)
         trn_icdar_dataset = self.get_icdar_dataset()
         trn_icdar_dataset.update_model(supervision_model)
-        trn_icdar_dataset.update_device(self.gpu)
+        trn_icdar_dataset.update_device(self.gpu+4)
 
         trn_icdar15_sampler = torch.utils.data.distributed.DistributedSampler(trn_icdar_dataset)
         trn_icdar_loader = torch.utils.data.DataLoader(
@@ -299,10 +305,6 @@ class Trainer(object):
                 loss_value += loss.item()
                 batch_time += end_time - start_time
 
-                state_dict = craft.module.state_dict()
-                supervision_model.load_state_dict(state_dict)
-                trn_icdar_dataset.update_model(supervision_model)
-
                 if train_step > 0 and train_step%10==0 and self.gpu == 0:
                     # print(f'After training model update GPU {self.gpu} : {craft.module.conv_cls[-1].weight.reshape(2, -1)}')
                     # wandb.log({"ICDAR2015 Loss": loss.item()})
@@ -371,6 +373,9 @@ class Trainer(object):
                 temp_config.ITER = train_step
                 if train_step >= whole_training_step:
                     break
+            state_dict = craft.module.state_dict()
+            supervision_model.load_state_dict(state_dict)
+            trn_icdar_dataset.update_model(supervision_model)
 
         # save last model
         if self.gpu == 0:
@@ -410,7 +415,8 @@ class Trainer(object):
 def main():
 
     # Start train
-    ngpus_per_node = torch.cuda.device_count()
+    # ngpus_per_node = torch.cuda.device_count()
+    ngpus_per_node = 4
     world_size = ngpus_per_node
 
     torch.multiprocessing.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node,))
