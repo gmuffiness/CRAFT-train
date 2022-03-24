@@ -3,6 +3,9 @@ vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
+  synthtext_kor : "/nas/datahub/SynthText-KR"
+  ai_hub : "/nas/datahub/ai-hub-data/textinthewild_data/all_image"
+  ai_hub_gt : "/nas/datahub/ai-hub-data/textinthewild_data/last_new_a100.json"
 
 train:
   ckpt_path: null
@@ -25,6 +28,7 @@ train:
     enlarge_affinity: [0.5, 0.5]
     gauss_init_size: 200
     gauss_sigma: 40
+    syn_sample : 150000
     syn_aug:
       random_scale:
         range: [1.0, 1.5, 2.0]
@@ -34,7 +38,7 @@ train:
         option: False
       random_crop:
         version: "random_resize_crop"
-        scale: [0.333, 1.0]
+        scale: [0.2, 0.8]
         ratio: [0.75, 1.333]
         option: True
       random_horizontal_flip:
@@ -44,7 +48,7 @@ train:
         contrast: 0.2
         saturation: 0.2
         hue: 0.2
-        option: False
+        option: True
 
 
 test:

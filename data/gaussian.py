@@ -182,3 +182,41 @@ class GaussianBuilder(object):
         if len(all_affinity_bbox) > 0:
             all_affinity_bbox = np.concatenate(all_affinity_bbox, axis=0)
         return affinity_map, all_affinity_bbox
+
+    def generate_affinity_ai(self, img_h, img_w, word_level_char_bbox, vertical=None):
+
+        affinity_map = np.zeros([img_h, img_w], dtype=np.float32)
+        all_affinity_bbox = []
+        for i in range(len(word_level_char_bbox)):
+            if vertical != None:
+                if not vertical[i]:
+                    for j in range(len(word_level_char_bbox[i]) - 1):
+                        affinity_bbox = self.calculate_affinity_box_points(
+                            word_level_char_bbox[i][j], word_level_char_bbox[i][j + 1],
+                        )
+
+                        affinity_map = self.add_gaussian_map_to_score_map(
+                            affinity_map,
+                            affinity_bbox.copy(),
+                            self.enlarge_affinity,
+                            map_type="affinity",
+                        )
+                        all_affinity_bbox.append(np.expand_dims(affinity_bbox, axis=0))
+            else:
+                for j in range(len(word_level_char_bbox[i]) - 1):
+                    affinity_bbox = self.calculate_affinity_box_points(
+                        word_level_char_bbox[i][j], word_level_char_bbox[i][j + 1],
+                    )
+
+                    affinity_map = self.add_gaussian_map_to_score_map(
+                        affinity_map,
+                        affinity_bbox.copy(),
+                        self.enlarge_affinity,
+                        map_type="affinity",
+                    )
+                    all_affinity_bbox.append(np.expand_dims(affinity_bbox, axis=0))
+
+
+        if len(all_affinity_bbox) > 0:
+            all_affinity_bbox = np.concatenate(all_affinity_bbox, axis=0)
+        return affinity_map, all_affinity_bbox

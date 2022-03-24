@@ -39,6 +39,7 @@ class SynthTextDataSet(Dataset):
         aug,
         vis_test_dir,
         vis_opt,
+        sample=None,
     ):
         self.output_size = output_size
         self.data_dir = data_dir
@@ -50,6 +51,10 @@ class SynthTextDataSet(Dataset):
         self.aug = aug
         self.vis_test_dir = vis_test_dir
         self.vis_opt = vis_opt
+        self.sample = sample
+        if self.sample != None:
+            np.random.seed(0)
+            self.idx = np.random.randint(0, 85000, self.sample)
 
     # TODO: load data with generator will save more train preparing time?
     def load_data(self, bbox="char"):
@@ -187,10 +192,17 @@ class SynthTextDataSet(Dataset):
     def resize_to_half(self, ground_truth):
         return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2))
 
+
     def __len__(self):
-        return len(self.img_names)
+        if self.sample != None:
+            return len(self.idx)
+        else:
+            return len(self.img_names)
 
     def __getitem__(self, index):
+        if self.sample != None:
+            index = self.idx[index]
+
         (
             image,
             region_score,
