@@ -19,7 +19,7 @@ import yaml
 
 from config.load_config import load_yaml, DotDict
 from data.dataset import SynthTextDataSet
-from eval import main as main_eval, main_cleval
+from eval_v2 import main as main_eval, main_cleval
 from loss.mseloss import Maploss, Maploss_v2, Maploss_v3
 from model.craft import CRAFT
 from metrics.eval_det_iou import DetectionIoUEvaluator
@@ -32,8 +32,7 @@ class Trainer(object):
         self.gpu = gpu
         self.synth_loader, self.synth_sampler = self.get_synth_loader()
         self.net_param = self.get_load_param(gpu)
-        # NOTE
-        self.test_data_set = config.test.test_data_dir.split("/")[-2].lower()  ###
+
 
     def get_synth_loader(self):
         # 나중에 따로 동작할 수 도 있을 것 같아서 분리 시켜 놓음
@@ -94,6 +93,50 @@ class Trainer(object):
         elif self.config.train.loss == 3:
             criterion = Maploss_v3()
         return criterion
+
+    #note
+    def iou_eval(self, dataset, train_step, save_param_path):
+
+        test_config = DotDict(self.config.test[dataset])
+
+        val_result_dir = os.path.join(
+            self.config.results_dir, "{}/{}".format(dataset, str(train_step))
+        )
+
+        evaluator = DetectionIoUEvaluator()
+        metrics = main_eval(
+            save_param_path, test_config, evaluator, val_result_dir
+        )
+        if self.config.wandb_opt:
+            wandb.log(
+                {
+                    "{} Recall".format(dataset): np.round(metrics["recall"], 3),
+                    "{} Precision".format(dataset): np.round(metrics["precision"], 3),
+                    "{} F1-score".format(dataset): np.round(metrics["hmean"], 3),
+                }
+            )
+
+    #note
+    def cleval(self, dataset, train_step, save_param_path):
+
+        test_config = DotDict(self.config.test[dataset])
+
+        val_result_dir = os.path.join(
+            self.config.results_dir, "{}/{}".format(dataset, str(train_step))
+        )
+
+        metrics = main_cleval(
+            save_param_path, test_config, val_result_dir
+        )
+
+        if self.config.wandb_opt:
+            wandb.log(
+                {
+                    "{} Recall".format(dataset): np.round(metrics["recall"], 3),
+                    "{} Precision".format(dataset): np.round(metrics["precision"], 3),
+                    "{} F1-score".format(dataset): np.round(metrics["hmean"], 3),
+                }
+            )
 
     def train(self):
 
@@ -262,29 +305,9 @@ class Trainer(object):
 
                     # NOTE
                     # validation ###
+                    self.iou_eval("icdar2013", train_step, save_param_path)
+                    self.cleval("prescription", train_step, save_param_path)
 
-                    val_result_dir = os.path.join(
-                        self.config.results_dir, "{}".format(str(train_step))
-                    )
-
-                    if self.test_data_set == 'prescription':
-                        metrics = main_cleval(
-                            save_param_path, self.config, val_result_dir
-                        )
-
-                    else:
-                        evaluator = DetectionIoUEvaluator()
-                        metrics = main_eval(
-                            save_param_path, self.config, evaluator, val_result_dir
-                        )
-                    if self.config.wandb_opt:
-                        wandb.log(
-                            {
-                                "{} Recall".format(self.test_data_set): np.round(metrics["recall"], 3),
-                                "{} Precision".format(self.test_data_set): np.round(metrics["precision"], 3),
-                                "{} F1-score".format(self.test_data_set): np.round(metrics["hmean"], 3),
-                            }
-                        )
 
                 train_step += 1
                 if train_step >= whole_training_step:
@@ -309,30 +332,11 @@ class Trainer(object):
             torch.save(save_param_dic, save_param_path)
 
             # NOTE
-            val_result_dir = os.path.join(
-                self.config.results_dir, "{}".format(str(train_step))
-            )
-
-            if self.test_data_set == 'prescription':
-                metrics = main_cleval(
-                    save_param_path, self.config, val_result_dir
-                )
-
-            else:
-                evaluator = DetectionIoUEvaluator()
-                metrics = main_eval(
-                    save_param_path, self.config, evaluator, val_result_dir
-                )
+            self.iou_eval("icdar2013", train_step, save_param_path)
+            self.cleval("prescription", train_step, save_param_path)
 
 
             if self.config.wandb_opt:
-                wandb.log(
-                    {
-                        "{} Recall".format(self.test_data_set): np.round(metrics["recall"], 3),
-                        "{} Precision".format(self.test_data_set): np.round(metrics["precision"], 3),
-                        "{} F1-score".format(self.test_data_set): np.round(metrics["hmean"], 3),
-                    }
-                )
                 wandb.finish()
 
 

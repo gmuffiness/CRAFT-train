@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import argparse
 import os
 
@@ -237,19 +239,19 @@ def load_test_dataset(test_folder_name, config):
     # TODO if문을 삭제할 수 있지 않을까??
 
     if test_folder_name == "synthtext":
-        total_bboxes_gt, total_img_path = load_synthtext_gt(config.test.test_data_dir)
+        total_bboxes_gt, total_img_path = load_synthtext_gt(config.test_data_dir)
 
     elif test_folder_name == "icdar2013":
         total_bboxes_gt, total_img_path = load_icdar2013_gt(
-            dataFolder=config.test.test_data_dir)
+            dataFolder=config.test_data_dir)
 
     elif test_folder_name == "icdar2015":
         total_bboxes_gt, total_img_path = load_icdar2015_gt(
-            dataFolder=config.test.test_data_dir)
+            dataFolder=config.test_data_dir)
     # NOTE
     elif test_folder_name == "prescription":
         total_bboxes_gt, total_img_path = load_prescription_cleval_gt(
-            dataFolder=config.test.test_data_dir)
+            dataFolder=config.test_data_dir)
     else:
         print("not found test dataset")
 
@@ -274,6 +276,8 @@ def viz_test(img, pre_output, pre_box, gt_box, img_name, result_dir, test_folder
         print("not found test dataset")
 
 
+
+
 def main(model_path, config, evaluator, result_dir, viz=True):
 
     # test 폴더에 대한 학습된 모델의 f1-score를 계산
@@ -286,7 +290,7 @@ def main(model_path, config, evaluator, result_dir, viz=True):
 
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
-    test_folder_name = config.test.test_data_dir.split("/")[-2].lower()
+    test_folder_name = config.test_data_dir.split("/")[-2].lower()
 
     # load model
     model = CRAFT()  # initialize
@@ -294,7 +298,7 @@ def main(model_path, config, evaluator, result_dir, viz=True):
     net_param = torch.load(model_path)
     model.load_state_dict(copyStateDict(net_param["craft"]))
 
-    if config.test.cuda:
+    if config.cuda:
         model = model.cuda()
         model = torch.nn.DataParallel(model)
         cudnn.benchmark = False
@@ -305,7 +309,7 @@ def main(model_path, config, evaluator, result_dir, viz=True):
     total_imgs_bboxes_gt, total_imgs_path = load_test_dataset(test_folder_name, config)
 
     # -----------------------------------------------------------------------------------------------------------------#
-    canvas_size = config.test.canvas_size[test_folder_name]
+    canvas_size = config.canvas_size
     # print(canvas_size)
     total_img_bboxes_pre = []
     for k, img_path in enumerate(tqdm(total_imgs_path)):
@@ -318,13 +322,13 @@ def main(model_path, config, evaluator, result_dir, viz=True):
         bboxes, polys, score_text = test_net(
             model,
             image,
-            config.test.text_threshold,
-            config.test.link_threshold,
-            config.test.low_text,
-            config.test.cuda,
-            config.test.poly,
+            config.text_threshold,
+            config.link_threshold,
+            config.low_text,
+            config.cuda,
+            config.poly,
             canvas_size,
-            config.test.mag_ratio,
+            config.mag_ratio,
         )
 
         # -------------------------------------------------------------------------------------------------------------#
@@ -339,7 +343,7 @@ def main(model_path, config, evaluator, result_dir, viz=True):
 
         # -------------------------------------------------------------------------------------------------------------#
 
-        if config.test.vis_opt:
+        if config.vis_opt:
             viz_test(
                 image,
                 score_text,
@@ -384,7 +388,7 @@ def main_cleval(model_path, config, result_dir, viz=True):
 
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
-    test_folder_name = config.test.test_data_dir.split("/")[-2].lower()
+    test_folder_name = config.test_data_dir.split("/")[-2].lower()
 
     # load model
     model = CRAFT()  # initialize
@@ -392,7 +396,7 @@ def main_cleval(model_path, config, result_dir, viz=True):
     net_param = torch.load(model_path)
     model.load_state_dict(copyStateDict(net_param["craft"]))
 
-    if config.test.cuda:
+    if config.cuda:
         model = model.cuda()
         model = torch.nn.DataParallel(model)
         cudnn.benchmark = False
@@ -417,13 +421,13 @@ def main_cleval(model_path, config, result_dir, viz=True):
         bboxes, polys, score_text = test_net(
             model,
             image,
-            config.test.text_threshold,
-            config.test.link_threshold,
-            config.test.low_text,
-            config.test.cuda,
-            config.test.poly,
-            config.test.canvas_size[test_folder_name],
-            config.test.mag_ratio,
+            config.text_threshold,
+            config.link_threshold,
+            config.low_text,
+            config.cuda,
+            config.poly,
+            config.canvas_size,
+            config.mag_ratio,
         )
 
         # -------------------------------------------------------------------------------------------------------------#
@@ -438,7 +442,7 @@ def main_cleval(model_path, config, result_dir, viz=True):
 
         # -------------------------------------------------------------------------------------------------------------#
 
-        if config.test.vis_opt:
+        if config.vis_opt:
             viz_test(
                 image,
                 score_text,
@@ -455,7 +459,7 @@ def main_cleval(model_path, config, result_dir, viz=True):
         make_txt(result_pred, result_dir, img_name, dtype='pred')
 
     # -----------------------------------------------------------------------------------------------------------------#
-    metrics = clEval.main(config.test.test_data_dir, result_dir)
+    metrics = clEval.main(config.test_data_dir, result_dir)
     print('Finish : detection evaluation' + '-' * 50)
 
     return metrics

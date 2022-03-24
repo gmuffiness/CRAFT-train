@@ -765,7 +765,7 @@ def main(gt_dir, pred_dir, BOX_TYPE='QUAD', TRANSCRIPTION=False, CONFIDENCES=Fal
     pref = result['method']['Detection']['hmean']
 
     print("precision, recall, H:")
-    print("%0.1f, %0.1f, %0.1f" % (100. * pr, 100. * re, 100. * pref))
+    print("%0.1f, %0.1f, %0.1f" % (pr, re, pref))
 
 
     result_dict = {"precision": None, "recall": None, "hmean": None}

@@ -1,0 +1,106 @@
+results_dir: "./exp/"
+vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
+wandb_opt: False
+
+data_dir:
+  synthtext: "/data/SynthText/"
+  synthtext_gt: NULL
+  synthtext_kor: "/nas/datahub/SynthText-KR"
+  ai_hub: "/nas/datahub/ai-hub-data/textinthewild_data/all_image"
+  ai_hub_gt: "/nas/datahub/ai-hub-data/textinthewild_data/last_new_a100.json"
+  prescription: "/nas/datahub/prescription/"
+  ic13: "/data/ICDAR2013/"
+  ic15: "/data/ICDAR2015/"
+  ic15_gt: NULL
+#  ic15_gt: "/data/ICDAR2015_official_supervision_v3/0"
+
+
+train:
+  ckpt_path: null
+  batch_size: 20
+  st_iter: 0
+  end_iter: 60000
+  lr: 0.0001
+  lr_decay: 15000
+  gamma: 0.2
+  weight_decay: 0.00001
+  num_workers: 4
+  amp: True
+  loss: 3
+  neg_rto: 1
+  n_min_neg: 1000
+  data:
+    vis_opt: False
+    output_size: 768
+    enlarge_region : [0.5, 0.5] # x axis, y axis
+    enlarge_affinity: [0., 0.5]
+    gauss_init_size: 200
+    gauss_sigma: 40
+    syn_aug:
+      random_scale:
+        range: [1.0, 1.5, 2.0]
+        option: False
+      random_rotate:
+        max_angle: 20
+        option: False
+      random_crop:
+        version: "random_resize_crop"
+        scale: [0.333, 1.0]
+        ratio: [0.75, 1.333]
+        option: True
+      random_horizontal_flip:
+        option: False
+      random_colorjitter:
+        brightness: 0.2
+        contrast: 0.2
+        saturation: 0.2
+        hue: 0.2
+        option: False
+
+
+test:
+  icdar2013:
+    trained_model: null
+    cuda: True
+    vis_opt: True
+    test_data_dir : "/data/ICDAR2013/"
+    text_threshold: 0.85 # ICDAR2015 0.85
+    low_text: 0.5 # ICDAR2015 0.5
+    link_threshold: 0.2 # ICDAR2013: 0.2
+    canvas_size: 960
+    mag_ratio: 1.5
+    poly: False
+
+  icdar2015:
+    trained_model: null
+    cuda: True
+    vis_opt: True
+    test_data_dir: "/data/ICDAR2015/"
+    text_threshold: 0.85 # ICDAR2015 0.85
+    low_text: 0.5 # ICDAR2015 0.5
+    link_threshold: 0.2 # ICDAR2013: 0.2
+    canvas_size: 2240
+    mag_ratio: 1.75
+    poly: False
+  prescription:
+    trained_model: null
+    cuda: True
+    vis_opt: True
+    test_data_dir: "/nas/datahub/prescription/"
+    text_threshold: 0.1 # ICDAR2015 0.85
+    low_text: 0.25 # ICDAR2015 0.5
+    link_threshold: 0.4 # ICDAR2013: 0.2
+    canvas_size: 2560
+    mag_ratio: 1.
+    poly: False
+
+
+
+
+# test for prescription
+#  text_threshold: 0.1
+#  low_text: 0.25
+#  link_threshold: 0.4
+#  canvas_size: 2560
+#  mag_ratio: 1.
+
