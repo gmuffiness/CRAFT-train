@@ -12,6 +12,45 @@ from utils.craft_utils import getDetBoxes, adjustResultCoordinates
 from data import imgproc
 from data.dataset import SynthTextDataSet
 
+
+# NOTE
+def load_prescription_cleval_gt(dataFolder):
+
+
+    total_img_path = []
+    total_gt_path = []
+    for (root, directories, files) in os.walk(dataFolder):
+        for file in files:
+            if '.jpg' in file:
+                img_path = os.path.join(root, file)
+                total_img_path.append(img_path)
+            if '_cl.txt' in file:
+                gt_path = os.path.join(root, file)
+                total_gt_path.append(gt_path)
+
+
+    total_imgs_parsing_bboxes = []
+    for img_path, gt_path in zip(sorted(total_img_path), sorted(total_gt_path)):
+        # check file
+
+        assert img_path.split(".jpg")[0] == gt_path.split('_label_cl.txt')[0]
+
+        lines = open(gt_path, encoding="utf-8").readlines()
+        word_bboxes = []
+
+        for line in lines:
+            box_info_dict = {"points": None, "text": None, "ignore": None}
+            box_info = line.strip().encode("utf-8").decode("utf-8-sig").split(",")
+
+            box_points = [int(box_info[i]) for i in range(8)]
+            box_info_dict["points"] = np.array(box_points)
+
+            word_bboxes.append(box_info_dict)
+        total_imgs_parsing_bboxes.append(word_bboxes)
+
+    return total_imgs_parsing_bboxes, sorted(total_img_path)
+
+
 def load_synthtext_gt(data_folder):
 
     synth_dataset = SynthTextDataSet(

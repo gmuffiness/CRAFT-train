@@ -10,7 +10,7 @@ for i in $SET
 
 do
 
-  CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 python3 trainSynth_concat.py --yaml="syn_concat_train" \
+  CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 python3 trainSynth.py --yaml="syn_train" \
 
 
 

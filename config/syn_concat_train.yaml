@@ -1,5 +1,7 @@
 results_dir: "./exp/"
 vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
+wandb_opt: False
+
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
@@ -52,12 +54,15 @@ train:
 
 
 test:
+  vis_opt: False
   test_data_dir: "/data/ICDAR2015/"
   trained_model: null
   text_threshold: 0.85 # ICDAR2015 0.85
   low_text: 0.5 # ICDAR2015 0.5
   link_threshold: 0.2 # ICDAR2013: 0.2
   cuda: True
-  canvas_size: 960
-  mag_ratio: 1.5
+  canvas_size:
+    icdar2013: 960
+    icdar2015: 2240
+  mag_ratio: 1.75
   poly: False

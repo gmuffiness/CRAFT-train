@@ -14,14 +14,65 @@ import yaml
 from config.load_config import load_yaml, DotDict
 from model.craft import CRAFT
 from metrics.eval_det_iou import DetectionIoUEvaluator
+from metrics.clEval import script as clEval
 from utils.inference_boxes import (
     test_net,
     load_icdar2015_gt,
     load_icdar2013_gt,
     load_synthtext_gt,
+    load_prescription_cleval_gt
 )
 from utils.util import copyStateDict
 from data import imgproc
+
+
+# NOTE
+def result_to_clEval(bounds):
+    # To use PopEval metric, the output of EasyOCR should be reorganized into txt form.
+    #
+    # bounds 리스트를 받아서, 아래 예시와 같은 str 형식으로 바꿔주는 함수
+    # ==============================================================
+    # Example)
+    # input :
+    # [([[273, 33], [519, 33], [519, 73], [273, 73]],
+    # '진료비 세부내역서',
+    # 0.7085034251213074)]
+    #
+    # output :
+    # 273,33,519,33,519,73,273,73,"진료비 세부내역서"
+    # ===============================================================
+
+    result = ''
+    for i, bound_sample in enumerate(bounds):
+        point_list = bound_sample
+        point_list_flatten = [str(int(coordinate)) for point in point_list for
+                              coordinate in point]
+
+        point_str = ', '.join(point_list_flatten)
+        output = point_str
+        result = result + output + '\n'
+
+    return result
+# NOTE
+def make_txt(result_str, save_folder, filename, dtype):
+    # str문자열 받아서, 문자열을 txt형식 파일으로 만들어서 PATH에 저장하는 함수.
+
+    if dtype == 'label':
+        filename = filename + '_label'
+    elif dtype == 'pred':
+        filename = filename + '_pred'
+    else:
+        filename = filename + '_{}'.format(str(dtype))
+
+    result_txt = os.path.join(
+        save_folder, '{}.txt'.format(filename))
+
+    text_file = open(result_txt, "w", encoding='utf8')
+    text_file.write(result_str)
+    text_file.close()
+
+    #return print('save_successful')
+
 
 def save_result_synth(img_file, img, pre_output, pre_box, gt_box=None, result_dir=""):
 
@@ -194,11 +245,13 @@ def load_test_dataset(test_folder_name, config):
         total_bboxes_gt, total_img_path = load_icdar2013_gt(
             dataFolder=config.test.test_data_dir)
 
-
     elif test_folder_name == "icdar2015":
         total_bboxes_gt, total_img_path = load_icdar2015_gt(
             dataFolder=config.test.test_data_dir)
-
+    # NOTE
+    elif test_folder_name == "prescription":
+        total_bboxes_gt, total_img_path = load_prescription_cleval_gt(
+            dataFolder=config.test.test_data_dir)
     else:
         print("not found test dataset")
 
@@ -317,6 +370,99 @@ def main(model_path, config, evaluator, result_dir, viz=True):
 
     # wandb.log({"precision": metrics['precision'], "recall": metrics['recall'], "hmean": metrics['hmean']})
     return metrics
+
+
+
+# NOTE
+def main_cleval(model_path, config, result_dir, viz=True):
+
+    # test 폴더에 대한 학습된 모델의 f1-score를 계산
+    # test 폴더에 대한 model의 output 시각화
+    # TODO loss 까지 구할 수 있도록?
+
+    # model_path : 학습된 모델의 저장 경로
+    # config : test에 필요한 configuration, dict type
+    # evaluator : test function
+
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
+    test_folder_name = config.test.test_data_dir.split("/")[-2].lower()
+
+    # load model
+    model = CRAFT()  # initialize
+    print("Loading weights from checkpoint (" + model_path + ")")
+    net_param = torch.load(model_path)
+    model.load_state_dict(copyStateDict(net_param["craft"]))
+
+    if config.test.cuda:
+        model = model.cuda()
+        model = torch.nn.DataParallel(model)
+        cudnn.benchmark = False
+
+    model.eval()
+    # ------------------------------------------------------------------------------------------------------------------#
+
+    total_imgs_bboxes_gt, total_imgs_path = load_test_dataset(test_folder_name, config)
+
+    # -----------------------------------------------------------------------------------------------------------------#
+
+
+    total_img_bboxes_pre = []
+    for k, img_path in enumerate(tqdm(total_imgs_path)):
+
+        # if img_path.split('/')[-1] == 'img_39.jpg':
+
+        image = cv2.imread(img_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        img_name = img_path.split('/')[-1].split(".jpg")[0]
+        single_img_bbox = []
+        bboxes, polys, score_text = test_net(
+            model,
+            image,
+            config.test.text_threshold,
+            config.test.link_threshold,
+            config.test.low_text,
+            config.test.cuda,
+            config.test.poly,
+            config.test.canvas_size[test_folder_name],
+            config.test.mag_ratio,
+        )
+
+        # -------------------------------------------------------------------------------------------------------------#
+
+        for box in bboxes:
+            box_info = {"points": None, "text": None, "ignore": None}
+            box_info["points"] = box
+            box_info["text"] = "###"
+            box_info["ignore"] = False
+            single_img_bbox.append(box_info)
+        total_img_bboxes_pre.append(single_img_bbox)
+
+        # -------------------------------------------------------------------------------------------------------------#
+
+        if config.test.vis_opt:
+            viz_test(
+                image,
+                score_text,
+                pre_box=polys,
+                gt_box=total_imgs_bboxes_gt[k],
+                img_name=img_name,
+                result_dir=result_dir,
+                test_folder_name=test_folder_name,
+            )
+
+        # -------------------------------------------------------------------------------------------------------------#
+
+        result_pred = result_to_clEval(bboxes)
+        make_txt(result_pred, result_dir, img_name, dtype='pred')
+
+    # -----------------------------------------------------------------------------------------------------------------#
+    metrics = clEval.main(config.test.test_data_dir, result_dir)
+    print('Finish : detection evaluation' + '-' * 50)
+
+    return metrics
+
+
 
 
 if __name__ == "__main__":

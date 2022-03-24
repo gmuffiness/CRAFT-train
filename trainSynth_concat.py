@@ -260,7 +260,8 @@ class Trainer(object):
                           "training_loss: {:.5f}, avg_batch_time: {:.5f}"
                           .format(time.strftime('%Y-%m-%d:%H:%M:%S',time.localtime(time.time())),
                                   train_step, whole_training_step, training_lr, mean_loss, avg_batch_time))
-                    #wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
+                    if self.config.wandb_opt:
+                        wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
 
                 if train_step % 500 == 0 and train_step != 0 and self.gpu == 0:
@@ -297,14 +298,14 @@ class Trainer(object):
                     metrics = main_eval(
                         save_param_path, self.config, evaluator, val_result_dir
                     )
-
-                    # wandb.log(
-                    #     {
-                    #         "ICDAR2013 Recall": np.round(metrics["recall"], 3),
-                    #         "ICDAR2013 Precision": np.round(metrics["precision"], 3),
-                    #         "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
-                    #     }
-                    # )
+                    if self.config.wandb_opt:
+                        wandb.log(
+                            {
+                                "ICDAR2013 Recall": np.round(metrics["recall"], 3),
+                                "ICDAR2013 Precision": np.round(metrics["precision"], 3),
+                                "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
+                            }
+                        )
 
                 train_step += 1
                 if train_step >= whole_training_step:
@@ -334,15 +335,15 @@ class Trainer(object):
                 self.config.results_dir, "{}".format(str(train_step))
             )
             metrics = main_eval(save_param_path, self.config, evaluator, val_result_dir)
-
-            # wandb.log(
-            #     {
-            #         "ICDAR2013 Recall": np.round(metrics["recall"], 3),
-            #         "ICDAR2013 Precision": np.round(metrics["precision"], 3),
-            #         "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
-            #     }
-            # )
-            # wandb.finish()
+            if self.config.wandb_opt:
+                wandb.log(
+                    {
+                        "ICDAR2013 Recall": np.round(metrics["recall"], 3),
+                        "ICDAR2013 Precision": np.round(metrics["precision"], 3),
+                        "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
+                    }
+                )
+                wandb.finish()
 
 
 def main():
@@ -384,12 +385,13 @@ def main_worker(gpu, ngpus_per_node):
     config = load_yaml(args.yaml)
 
     if gpu == 0:
-        # Apply config to wandb
-        # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
-        # wandb.config.update(config)
-        # print("-"*20+" Options "+"-"*20)
-        # print(yaml.dump(config))
-        # print("-" * 40)
+        if config["wandb_opt"]:
+            # Apply config to wandb
+            wandb.init(project="jm-test", entity="pingu", name=args.yaml)
+            wandb.config.update(config)
+        print("-"*20+" Options "+"-"*20)
+        print(yaml.dump(config))
+        print("-" * 40)
 
         # Make result_dir
         res_dir = os.path.join("exp", args.yaml)

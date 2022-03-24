@@ -19,7 +19,7 @@ import yaml
 
 from config.load_config import load_yaml, DotDict
 from data.dataset import SynthTextDataSet
-from eval import main as main_eval
+from eval import main as main_eval, main_cleval
 from loss.mseloss import Maploss, Maploss_v2, Maploss_v3
 from model.craft import CRAFT
 from metrics.eval_det_iou import DetectionIoUEvaluator
@@ -30,8 +30,10 @@ class Trainer(object):
 
         self.config = config
         self.gpu = gpu
-        self.synth_loader = self.get_synth_loader()
+        self.synth_loader, self.synth_sampler = self.get_synth_loader()
         self.net_param = self.get_load_param(gpu)
+        # NOTE
+        self.test_data_set = config.test.test_data_dir.split("/")[-2].lower()  ###
 
     def get_synth_loader(self):
         # 나중에 따로 동작할 수 도 있을 것 같아서 분리 시켜 놓음
@@ -61,7 +63,7 @@ class Trainer(object):
             pin_memory=True,
         )
 
-        return synth_loader
+        return synth_loader, synth_sampler
 
     def get_load_param(self, gpu):
 
@@ -94,7 +96,6 @@ class Trainer(object):
         return criterion
 
     def train(self):
-
 
         trn_loader = self.synth_loader
         # -------------------------------------------------------------------------------------------------------#
@@ -149,6 +150,7 @@ class Trainer(object):
 
         start_time = time.time()
         while train_step < whole_training_step:
+            self.synth_sampler.set_epoch(train_step)
             for index, (
                 image,
                 region_image,
@@ -228,10 +230,11 @@ class Trainer(object):
                           "training_loss: {:.5f}, avg_batch_time: {:.5f}"
                           .format(time.strftime('%Y-%m-%d:%H:%M:%S',time.localtime(time.time())),
                                   train_step, whole_training_step, training_lr, mean_loss, avg_batch_time))
-                    #wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
+                    if self.config.wandb_opt:
+                        wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
 
-                if train_step % 500 == 0 and train_step != 0 and self.gpu == 0:
+                if train_step % 50 == 0 and train_step != 0 and self.gpu == 0:
 
                     print("Saving state, index:", train_step)
                     save_param_dic = {
@@ -257,22 +260,31 @@ class Trainer(object):
 
                     torch.save(save_param_dic, save_param_path)
 
-                    # validation
-                    evaluator = DetectionIoUEvaluator()
+                    # NOTE
+                    # validation ###
+
                     val_result_dir = os.path.join(
                         self.config.results_dir, "{}".format(str(train_step))
                     )
-                    metrics = main_eval(
-                        save_param_path, self.config, evaluator, val_result_dir
-                    )
 
-                    # wandb.log(
-                    #     {
-                    #         "ICDAR2013 Recall": np.round(metrics["recall"], 3),
-                    #         "ICDAR2013 Precision": np.round(metrics["precision"], 3),
-                    #         "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
-                    #     }
-                    # )
+                    if self.test_data_set == 'prescription':
+                        metrics = main_cleval(
+                            save_param_path, self.config, val_result_dir
+                        )
+
+                    else:
+                        evaluator = DetectionIoUEvaluator()
+                        metrics = main_eval(
+                            save_param_path, self.config, evaluator, val_result_dir
+                        )
+                    if self.config.wandb_opt:
+                        wandb.log(
+                            {
+                                "{} Recall".format(self.test_data_set): np.round(metrics["recall"], 3),
+                                "{} Precision".format(self.test_data_set): np.round(metrics["precision"], 3),
+                                "{} F1-score".format(self.test_data_set): np.round(metrics["hmean"], 3),
+                            }
+                        )
 
                 train_step += 1
                 if train_step >= whole_training_step:
@@ -296,20 +308,32 @@ class Trainer(object):
                 )
             torch.save(save_param_dic, save_param_path)
 
-            evaluator = DetectionIoUEvaluator()
+            # NOTE
             val_result_dir = os.path.join(
                 self.config.results_dir, "{}".format(str(train_step))
             )
-            metrics = main_eval(save_param_path, self.config, evaluator, val_result_dir)
 
-            # wandb.log(
-            #     {
-            #         "ICDAR2013 Recall": np.round(metrics["recall"], 3),
-            #         "ICDAR2013 Precision": np.round(metrics["precision"], 3),
-            #         "ICDAR2013 F1-score": np.round(metrics["hmean"], 3),
-            #     }
-            # )
-            # wandb.finish()
+            if self.test_data_set == 'prescription':
+                metrics = main_cleval(
+                    save_param_path, self.config, val_result_dir
+                )
+
+            else:
+                evaluator = DetectionIoUEvaluator()
+                metrics = main_eval(
+                    save_param_path, self.config, evaluator, val_result_dir
+                )
+
+
+            if self.config.wandb_opt:
+                wandb.log(
+                    {
+                        "{} Recall".format(self.test_data_set): np.round(metrics["recall"], 3),
+                        "{} Precision".format(self.test_data_set): np.round(metrics["precision"], 3),
+                        "{} F1-score".format(self.test_data_set): np.round(metrics["hmean"], 3),
+                    }
+                )
+                wandb.finish()
 
 
 def main():
@@ -351,12 +375,13 @@ def main_worker(gpu, ngpus_per_node):
     config = load_yaml(args.yaml)
 
     if gpu == 0:
-        # Apply config to wandb
-        # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
-        # wandb.config.update(config)
-        # print("-"*20+" Options "+"-"*20)
-        # print(yaml.dump(config))
-        # print("-" * 40)
+        if config["wandb_opt"]:
+            # Apply config to wandb
+            wandb.init(project="jm-test", entity="pingu", name=args.yaml)
+            wandb.config.update(config)
+        print("-"*20+" Options "+"-"*20)
+        print(yaml.dump(config))
+        print("-" * 40)
 
         # Make result_dir
         res_dir = os.path.join("exp", args.yaml)
