@@ -133,7 +133,7 @@ class Trainer(object):
         test_config = DotDict(self.config.test[dataset])
 
         val_result_dir = os.path.join(
-            self.config.results_dir, "{}/{}".format(dataset, str(train_step))
+            self.config.results_dir, "{}/{}".format(dataset+"_iou", str(train_step))
         )
 
         evaluator = DetectionIoUEvaluator()
