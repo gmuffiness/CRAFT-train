@@ -91,6 +91,17 @@ test:
     canvas_size: 960
     mag_ratio: 1.5
     poly: False
+  icdar2015:
+    trained_model: null
+    cuda: True
+    vis_opt: True
+    test_data_dir: "/nas/datahub/ICDAR2015/"
+    text_threshold: 0.85 # ICDAR2015 0.85
+    low_text: 0.5 # ICDAR2015 0.5
+    link_threshold: 0.2 # ICDAR2013: 0.2
+    canvas_size: 2240
+    mag_ratio: 1.75
+    poly: False
   prescription:
     trained_model: null
     cuda: True

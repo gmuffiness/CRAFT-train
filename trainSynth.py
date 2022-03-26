@@ -128,6 +128,8 @@ class Trainer(object):
     # note
     def iou_eval(self, dataset, train_step, save_param_path):
 
+        # dataset = "icdar2013" or  "icdar2015" or "prescription"
+
         test_config = DotDict(self.config.test[dataset])
 
         val_result_dir = os.path.join(
@@ -149,6 +151,8 @@ class Trainer(object):
 
     # note
     def cleval(self, dataset, train_step, save_param_path):
+
+        # dataset = "icdar2013" or  "icdar2015" or "prescription"
 
         test_config = DotDict(self.config.test[dataset])
 
