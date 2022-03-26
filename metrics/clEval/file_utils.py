@@ -32,38 +32,6 @@ def load_zip_file_keys(file, file_name_reg_exp=''):
 
 
 
-def make_zip(dir_path, check_file, save_path):
-
-    os.chdir(dir_path)
-    check_folder = ['low','middle','high']
-
-
-    if dir_path.split('/')[-1] not in check_folder:
-        save_name = 'total'
-    else :
-        save_name = dir_path.split('/')[-1]
-
-
-    if not os.path.exists(os.path.join(save_path,'zip')):
-        os.makedirs(os.path.join(save_path,'zip'))
-
-    if save_name != 'total':
-        with zipfile.ZipFile(save_path + '/zip/{}_{}.zip'.format(save_name, check_file), 'w') as compzip:
-            for file in os.listdir(dir_path):
-                if file.endswith("_{}.txt".format(check_file)):
-                        compzip.write(file)
-    else:
-        with zipfile.ZipFile(save_path + '/zip/{}_{}.zip'.format(save_name, check_file), 'w') as compzip:
-            for subfolder in os.listdir(dir_path):
-                if subfolder in check_folder:
-                    subfolder_path = os.path.join(dir_path,subfolder)
-                    os.chdir(subfolder_path)
-                    for file in os.listdir(subfolder_path):
-                        if file.endswith("_{}.txt".format(check_file)):
-                                compzip.write(file)
-
-
-
 
 def load_zip_file(file, file_name_extract='', allEntries=False):
     """
@@ -115,7 +83,7 @@ def load_dir_file(file, file_name_extract='pred', allEntries=False):
         addFile = True
 
         file_name = name.split('/')[-1]
-        keyName = file_name.replace('_pred', '').replace('_label_cl', '').replace('.txt', '')
+        keyName = file_name.replace('_pred', '').replace('_label_cl', '').replace('gt_', '').replace('.txt', '')
 
         if addFile:
             with io.open(name, 'r', encoding='utf-8') as f:

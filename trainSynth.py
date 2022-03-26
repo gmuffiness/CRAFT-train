@@ -4,7 +4,6 @@ from collections import OrderedDict
 import os
 import shutil
 import time
-
 import cv2
 import numpy as np
 from tqdm import tqdm
@@ -14,14 +13,18 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
 from torchvision.transforms.functional import to_pil_image
+from torch.utils.data import ConcatDataset
 import wandb
 import yaml
 
 from config.load_config import load_yaml, DotDict
 from data.dataset import SynthTextDataSet
-from eval_v2 import main as main_eval, main_cleval
+from data.dataset_kr import SynthTextDataSet_kr, hierarchical_dataset
+from data.dataset_ai_hub import AiHubDataset
+from eval_v2 import main_eval, main_cleval
 from loss.mseloss import Maploss, Maploss_v2, Maploss_v3
 from model.craft import CRAFT
+from model.craft_resnet import UNetWithResnet50Encoder
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils.util import copyStateDict, save_parser
 
@@ -30,39 +33,67 @@ class Trainer(object):
 
         self.config = config
         self.gpu = gpu
-        self.synth_loader, self.synth_sampler = self.get_synth_loader()
+        self.trn_loader, self.trn_sampler = self.get_trn_loader()
         self.net_param = self.get_load_param(gpu)
 
+    def get_trn_loader(self):
 
-    def get_synth_loader(self):
-        # 나중에 따로 동작할 수 도 있을 것 같아서 분리 시켜 놓음
+        total_trn_dataset = []
+
+        if "synthtext" in self.config.train.dataset:
+            #eng-syn
+            synth_dataset = SynthTextDataSet(
+                output_size=self.config.train.data.output_size,
+                data_dir=self.config.data_dir.synthtext,
+                saved_gt_dir=self.config.data_dir.synthtext_gt,
+                gauss_init_size=self.config.train.data.gauss_init_size,
+                gauss_sigma=self.config.train.data.gauss_sigma,
+                enlarge_region=self.config.train.data.enlarge_region,
+                enlarge_affinity=self.config.train.data.enlarge_affinity,
+                aug=self.config.train.data.syn_aug,
+                vis_test_dir=self.config.vis_test_dir,
+                vis_opt=self.config.train.data.vis_opt,
+                sample=self.config.train.data.syn_sample
+            )
+            total_trn_dataset.append(synth_dataset)
+
+        if "ai_hub" in self.config.train.dataset:
+            # # ai-hub
+            ai_hub_dataset = AiHubDataset(
+                output_size=self.config.train.data.output_size,
+                data_dir=self.config.data_dir.ai_hub,
+                gt_path=self.config.data_dir.ai_hub_gt,
+                gauss_init_size=self.config.train.data.gauss_init_size,
+                gauss_sigma=self.config.train.data.gauss_sigma,
+                enlarge_region=self.config.train.data.enlarge_region,
+                enlarge_affinity=self.config.train.data.enlarge_affinity,
+                aug=self.config.train.data.ai_aug,
+                vis_opt=self.config.train.data.vis_opt)
+
+            total_trn_dataset.append(ai_hub_dataset)
+
+        if "synthtext_kor" in self.config.train.dataset:
+            # # # kor-syn
+            data_path_kr = self.config.data_dir.synthtext_kor
+            total_trn_dataset.extend(hierarchical_dataset(root=data_path_kr, config=self.config))
 
 
-        synth_dataset = SynthTextDataSet(
-            output_size=self.config.train.data.output_size,
-            data_dir=self.config.data_dir.synthtext,
-            saved_gt_dir=self.config.data_dir.synthtext_gt,
-            gauss_init_size=self.config.train.data.gauss_init_size,
-            gauss_sigma=self.config.train.data.gauss_sigma,
-            enlarge_region=self.config.train.data.enlarge_region,
-            enlarge_affinity=self.config.train.data.enlarge_affinity,
-            aug=self.config.train.data.syn_aug,
-            vis_test_dir=self.config.vis_test_dir,
-            vis_opt=self.config.train.data.vis_opt
-        )
-        print(self.config.train.batch_size)
-        synth_sampler = torch.utils.data.distributed.DistributedSampler(synth_dataset)
-        synth_loader = torch.utils.data.DataLoader(
-            synth_dataset,
+        dataloader = ConcatDataset(total_trn_dataset)
+
+        trn_sampler = torch.utils.data.distributed.DistributedSampler(dataloader)
+        trn_loader = torch.utils.data.DataLoader(
+            dataloader,
             batch_size=self.config.train.batch_size,
             shuffle=False,
             num_workers=self.config.train.num_workers,
-            sampler=synth_sampler,
-            drop_last=False,
+            sampler=trn_sampler,
+            drop_last=True,
             pin_memory=True,
         )
 
-        return synth_loader, synth_sampler
+        return trn_loader, trn_sampler
+
+
 
     def get_load_param(self, gpu):
 
@@ -94,7 +125,7 @@ class Trainer(object):
             criterion = Maploss_v3()
         return criterion
 
-    #note
+    # note
     def iou_eval(self, dataset, train_step, save_param_path):
 
         test_config = DotDict(self.config.test[dataset])
@@ -105,7 +136,7 @@ class Trainer(object):
 
         evaluator = DetectionIoUEvaluator()
         metrics = main_eval(
-            save_param_path, test_config, evaluator, val_result_dir
+            save_param_path, self.config.train.backbone, test_config, evaluator, val_result_dir
         )
         if self.config.wandb_opt:
             wandb.log(
@@ -116,7 +147,7 @@ class Trainer(object):
                 }
             )
 
-    #note
+    # note
     def cleval(self, dataset, train_step, save_param_path):
 
         test_config = DotDict(self.config.test[dataset])
@@ -126,7 +157,7 @@ class Trainer(object):
         )
 
         metrics = main_cleval(
-            save_param_path, test_config, val_result_dir
+            save_param_path, self.config.train.backbone, test_config, val_result_dir
         )
 
         if self.config.wandb_opt:
@@ -138,11 +169,18 @@ class Trainer(object):
                 }
             )
 
+
     def train(self):
 
-        trn_loader = self.synth_loader
+
+        trn_loader = self.trn_loader
         # -------------------------------------------------------------------------------------------------------#
-        craft = CRAFT(pretrained=True, amp=self.config.train.amp)
+
+        if self.config.train.backbone == "vgg":
+            craft = CRAFT(pretrained=True, amp=self.config.train.amp)
+        if self.config.train.backbone == "resnet":
+            craft = UNetWithResnet50Encoder(pretrained=True, amp=self.config.train.amp)
+
         # load model
         if self.config.train.ckpt_path is not None:
             craft.load_state_dict(copyStateDict(self.net_param["craft"]))
@@ -190,10 +228,10 @@ class Trainer(object):
         training_lr = self.config.train.lr
         loss_value = 0
         batch_time = 0
-
+        epoch = 0
         start_time = time.time()
         while train_step < whole_training_step:
-            self.synth_sampler.set_epoch(train_step)
+            self.trn_sampler.set_epoch(epoch)
             for index, (
                 image,
                 region_image,
@@ -303,15 +341,17 @@ class Trainer(object):
 
                     torch.save(save_param_dic, save_param_path)
 
-                    # NOTE
-                    # validation ###
+                    # validation
                     self.iou_eval("icdar2013", train_step, save_param_path)
                     self.cleval("prescription", train_step, save_param_path)
+                    #self.cleval("icdar2013", train_step, save_param_path)
+
 
 
                 train_step += 1
                 if train_step >= whole_training_step:
                     break
+            epoch += 1
 
         # save last model
         if self.gpu == 0:
@@ -330,11 +370,9 @@ class Trainer(object):
                     self.config.results_dir + "/CRAFT_clr_amp_" + repr(train_step) + ".pth"
                 )
             torch.save(save_param_dic, save_param_path)
-
             # NOTE
             self.iou_eval("icdar2013", train_step, save_param_path)
             self.cleval("prescription", train_step, save_param_path)
-
 
             if self.config.wandb_opt:
                 wandb.finish()
@@ -360,7 +398,7 @@ def main_worker(gpu, ngpus_per_node):
 
     parser.add_argument("--port",
                         "--use ddp port",
-                        default="2346",
+                        default="2646",
                         type=str,
                         help="Load configuration")
 

@@ -13,6 +13,7 @@ import yaml
 
 from config.load_config import load_yaml, DotDict
 from model.craft import CRAFT
+from model.craft_resnet import UNetWithResnet50Encoder
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from metrics.clEval import script as clEval
 from utils.inference_boxes import (
@@ -154,11 +155,11 @@ def save_result_2015(img_file, img, pre_output, pre_box, gt_box, result_dir):
     overlay_image_path = result_dir + "/res_" + filename + "_box.jpg"
     cv2.imwrite(overlay_image_path, overlay_img)
 
-    rg_score_image = np.uint8(pre_output[0] * 255)
-    affi_score_image = np.uint8(pre_output[1] * 255)
-    score_image = np.hstack([rg_score_image, affi_score_image])
-    score_img_path = result_dir + "/res_" + filename + "_score_grayscale.jpg"
-    cv2.imwrite(score_img_path, score_image)
+    # rg_score_image = np.uint8(pre_output[0] * 255)
+    # affi_score_image = np.uint8(pre_output[1] * 255)
+    # score_image = np.hstack([rg_score_image, affi_score_image])
+    # score_img_path = result_dir + "/res_" + filename + "_score_grayscale.jpg"
+    # cv2.imwrite(score_img_path, score_image)
 
 
 def save_result_2013(img_file, img, pre_output, pre_box, gt_box=None, result_dir=""):
@@ -211,11 +212,11 @@ def overlay(image, region, affinity, single_img_bbox):
     region_score = cv2.resize(region, (width, height))
     affinity_score = cv2.resize(affinity, (width, height))
 
-    region_score_color = imgproc.cvt2HeatmapImg(region_score)
-    affinity_score_color = imgproc.cvt2HeatmapImg(affinity_score)
+    #region_score_color = imgproc.cvt2HeatmapImg(region_score)
+    #affinity_score_color = imgproc.cvt2HeatmapImg(affinity_score)
 
-    overlay_region = cv2.addWeighted(image.copy(), 0.4, region_score_color, 0.6, 5)
-    overlay_aff = cv2.addWeighted(image.copy(), 0.4, affinity_score_color, 0.6, 5)
+    overlay_region = cv2.addWeighted(image.copy(), 0.4, region_score, 0.6, 5)
+    overlay_aff = cv2.addWeighted(image.copy(), 0.4, affinity_score, 0.6, 5)
 
     # draw
     boxed_img = image.copy()
@@ -276,9 +277,19 @@ def viz_test(img, pre_output, pre_box, gt_box, img_name, result_dir, test_folder
         print("not found test dataset")
 
 
+def load_gt_cl_dir(config, data):
+    if data == "icdar2013":
+        gt_cl_dir = os.path.join(config.test_data_dir, "Challenge2_Test_Task1_GT_cl")
+    elif data == "icdar2015":
+        gt_cl_dir = os.path.join(config.test_data_dir, "ch4_test_localization_transcription_gt_cl")
+    elif data == "prescription":
+        gt_cl_dir = config.test_data_dir
+    else:
+        print("no dataset")
+    return gt_cl_dir
 
 
-def main(model_path, config, evaluator, result_dir, viz=True):
+def main_eval(model_path, backbone, config, evaluator, result_dir, viz=True):
 
     # test 폴더에 대한 학습된 모델의 f1-score를 계산
     # test 폴더에 대한 model의 output 시각화
@@ -290,10 +301,13 @@ def main(model_path, config, evaluator, result_dir, viz=True):
 
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
-    test_folder_name = config.test_data_dir.split("/")[-2].lower()
+    test_set = config.test_data_dir.split("/")[-2].lower()
 
     # load model
-    model = CRAFT()  # initialize
+    if backbone == "vgg":
+        model = CRAFT()  # initialize
+    if backbone == "resnet":
+        model = UNetWithResnet50Encoder()
     print("Loading weights from checkpoint (" + model_path + ")")
     net_param = torch.load(model_path)
     model.load_state_dict(copyStateDict(net_param["craft"]))
@@ -306,7 +320,7 @@ def main(model_path, config, evaluator, result_dir, viz=True):
     model.eval()
     # ------------------------------------------------------------------------------------------------------------------#
 
-    total_imgs_bboxes_gt, total_imgs_path = load_test_dataset(test_folder_name, config)
+    total_imgs_bboxes_gt, total_imgs_path = load_test_dataset(test_set, config)
 
     # -----------------------------------------------------------------------------------------------------------------#
     canvas_size = config.canvas_size
@@ -351,7 +365,7 @@ def main(model_path, config, evaluator, result_dir, viz=True):
                 gt_box=total_imgs_bboxes_gt[k],
                 img_name=img_path,
                 result_dir=result_dir,
-                test_folder_name=test_folder_name,
+                test_folder_name=test_set,
             )
 
     # ------------------------------------------------------------------------------------------------------------------#
@@ -376,7 +390,7 @@ def main(model_path, config, evaluator, result_dir, viz=True):
 
 
 # NOTE
-def main_cleval(model_path, config, result_dir, viz=True):
+def main_cleval(model_path, backbone, config, result_dir, viz=True):
 
     # test 폴더에 대한 학습된 모델의 f1-score를 계산
     # test 폴더에 대한 model의 output 시각화
@@ -388,13 +402,22 @@ def main_cleval(model_path, config, result_dir, viz=True):
 
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
-    test_folder_name = config.test_data_dir.split("/")[-2].lower()
+    test_set = config.test_data_dir.split("/")[-2].lower()
 
     # load model
-    model = CRAFT()  # initialize
+    if backbone == "vgg":
+        model = CRAFT()  # initialize
+    if backbone == "resnet":
+        model = UNetWithResnet50Encoder()
+
+
     print("Loading weights from checkpoint (" + model_path + ")")
     net_param = torch.load(model_path)
-    model.load_state_dict(copyStateDict(net_param["craft"]))
+    try:
+        model.load_state_dict(copyStateDict(net_param["craft"]))
+    except :
+        model.load_state_dict(copyStateDict(net_param))
+
 
     if config.cuda:
         model = model.cuda()
@@ -404,7 +427,7 @@ def main_cleval(model_path, config, result_dir, viz=True):
     model.eval()
     # ------------------------------------------------------------------------------------------------------------------#
 
-    total_imgs_bboxes_gt, total_imgs_path = load_test_dataset(test_folder_name, config)
+    total_imgs_bboxes_gt, total_imgs_path = load_test_dataset(test_set, config)
 
     # -----------------------------------------------------------------------------------------------------------------#
 
@@ -450,7 +473,7 @@ def main_cleval(model_path, config, result_dir, viz=True):
                 gt_box=total_imgs_bboxes_gt[k],
                 img_name=img_name,
                 result_dir=result_dir,
-                test_folder_name=test_folder_name,
+                test_folder_name=test_set,
             )
 
         # -------------------------------------------------------------------------------------------------------------#
@@ -459,7 +482,18 @@ def main_cleval(model_path, config, result_dir, viz=True):
         make_txt(result_pred, result_dir, img_name, dtype='pred')
 
     # -----------------------------------------------------------------------------------------------------------------#
-    metrics = clEval.main(config.test_data_dir, result_dir)
+
+
+    gt_cl_dir = load_gt_cl_dir(config, data=test_set)
+
+    if test_set == "icdar2013":
+       GT_BOX_TYPE = "LTRB"
+    else:
+       GT_BOX_TYPE = "QUAD"
+
+
+    metrics = clEval.main(gt_cl_dir, result_dir, GT_BOX_TYPE=GT_BOX_TYPE,PRED_BOX_TYPE="QUAD")
+
     print('Finish : detection evaluation' + '-' * 50)
 
     return metrics
@@ -484,9 +518,7 @@ if __name__ == "__main__":
     config = DotDict(config)
 
     # Make result_dir
-    res_dir = os.path.join(os.path.join("exp", args.yaml), "result")
-    # args.yaml = "ic15_weak_supervision_shwang_test11_1_5_segment_region_score"
-    # res_dir = os.path.join(os.path.join("exp", args.yaml), config.test.trained_model.split("_")[-1][:-4])
+    res_dir = os.path.join(os.path.join("exp", args.yaml), "result1")
     config.results_dir = res_dir
 
     # wandb
@@ -496,4 +528,6 @@ if __name__ == "__main__":
         wandb.config.update(config)
 
     evaluator = DetectionIoUEvaluator()
-    main(config.test.trained_model, config, evaluator, res_dir)
+    test_config = DotDict(config.test["icdar2013"])
+
+    main_cleval(test_config.trained_model, config.train.backbone, test_config, res_dir)

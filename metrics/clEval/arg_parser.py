@@ -14,7 +14,9 @@ parser.add_argument('-o', '--OUTPUT_PATH', default='output/', help="Path to a di
 parser.add_argument('-p', '--PORT', default=8080, help='port number to show')
 
 # result format related parameters
-parser.add_argument('--BOX_TYPE', default='QUAD', choices=['LTRB', 'QUAD', 'POLY'])
+parser.add_argument('--BOX_TYPE', default='LTRB', choices=['LTRB', 'QUAD', 'POLY'])
+parser.add_argument('--GT_BOX_TYPE', default='QUAD', choices=['LTRB', 'QUAD', 'POLY'])
+parser.add_argument('--PRED_BOX_TYPE', default='QUAD', choices=['LTRB', 'QUAD', 'POLY'])
 parser.add_argument('--TRANSCRIPTION', action='store_true')
 parser.add_argument('--CONFIDENCES', action='store_true')
 parser.add_argument('--CRLF', action='store_true')

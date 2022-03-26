@@ -2,6 +2,7 @@ import os
 import re
 import itertools
 import copy
+import random
 
 import numpy as np
 import scipy.io as scio
@@ -53,8 +54,8 @@ class SynthTextDataSet(Dataset):
         self.vis_opt = vis_opt
         self.sample = sample
         if self.sample != None:
-            np.random.seed(0)
-            self.idx = np.random.randint(0, 85000, self.sample)
+            random.seed(0)
+            self.idx = random.sample(range(0, len(self.img_names)), self.sample)
 
     # TODO: load data with generator will save more train preparing time?
     def load_data(self, bbox="char"):
@@ -165,10 +166,20 @@ class SynthTextDataSet(Dataset):
                 augment_targets = random_crop_with_bbox(
                     augment_targets, word_level_char_bbox, self.output_size
                 )
+
             elif self.aug.random_crop.version == "random_resize_crop":
+                augment_targets = random_resize_crop(
+                    augment_targets,
+                    self.aug.random_crop.scale,
+                    self.aug.random_crop.ratio,
+                    self.output_size,
+                    self.aug.random_crop.rnd_threshold
+                )
+            elif self.aug.random_crop.version == "random_resize_crop_synth":
                 augment_targets = random_resize_crop_synth(
                     augment_targets, self.output_size
                 )
+
             else:
                 assert "Undefined RandomCrop version"
 

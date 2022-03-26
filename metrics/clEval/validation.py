@@ -20,18 +20,18 @@ def validate_data(gt_file, submit_file):
         gt = load_dir_file(gt_file,'label_cl')
         subm = load_dir_file(submit_file, 'pred', True)
 
-
+    #import ipdb;ipdb.set_trace()
     # Validate format of GroundTruth
     for k in gt:
 
-        validate_lines_in_file(k, gt[k], PARAMS.CRLF, PARAMS.BOX_TYPE, True)
+        validate_lines_in_file(k, gt[k], PARAMS.CRLF, PARAMS.GT_BOX_TYPE, True)
 
     # Validate format of results
     for k in subm:
         if k not in gt:
             raise Exception("The sample %s not present in GT" % k)
 
-        validate_lines_in_file(k, subm[k], PARAMS.CRLF, PARAMS.BOX_TYPE,
+        validate_lines_in_file(k, subm[k], PARAMS.CRLF, PARAMS.PRED_BOX_TYPE,
                                PARAMS.TRANSCRIPTION, PARAMS.CONFIDENCES)
 
 

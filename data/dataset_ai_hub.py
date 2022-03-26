@@ -155,10 +155,13 @@ class AiHubDataset(Dataset):
             affinity_score = np.zeros((img_h, img_w), dtype=np.float32)
         else:
             region_score = self.gaussian_builder.generate_region(
-                img_h, img_w, word_level_char_bbox
+                img_h, img_w, word_level_char_bbox,
+                horizontal_text_bools=[True for _ in range(len(do_care_words))]
             )
             affinity_score, _ = self.gaussian_builder.generate_affinity_ai(
-                img_h, img_w, word_level_char_bbox, vertical_word
+                img_h, img_w, word_level_char_bbox, vertical=vertical_word,
+                horizontal_text_bools=[True for _ in range(len(do_care_words))]
+
             )
 
         return (
@@ -207,11 +210,12 @@ class AiHubDataset(Dataset):
                     augment_targets, word_level_char_bbox, self.output_size
                 )
             elif self.aug.random_crop.version == "random_resize_crop":
-                augment_targets = random_resize_crop_ai(
+                augment_targets = random_resize_crop(
                     augment_targets,
                     self.aug.random_crop.scale,
                     self.aug.random_crop.ratio,
                     self.output_size,
+                    self.aug.random_crop.rnd_threshold
                 )
             else:
                 assert "Undefined RandomCrop version"

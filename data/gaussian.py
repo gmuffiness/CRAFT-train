@@ -183,7 +183,7 @@ class GaussianBuilder(object):
             all_affinity_bbox = np.concatenate(all_affinity_bbox, axis=0)
         return affinity_map, all_affinity_bbox
 
-    def generate_affinity_ai(self, img_h, img_w, word_level_char_bbox, vertical=None):
+    def generate_affinity_ai(self, img_h, img_w, word_level_char_bbox, horizontal_text_bools, vertical=None):
 
         affinity_map = np.zeros([img_h, img_w], dtype=np.float32)
         all_affinity_bbox = []
@@ -199,6 +199,7 @@ class GaussianBuilder(object):
                             affinity_map,
                             affinity_bbox.copy(),
                             self.enlarge_affinity,
+                            horizontal_text_bools[i],
                             map_type="affinity",
                         )
                         all_affinity_bbox.append(np.expand_dims(affinity_bbox, axis=0))
@@ -212,6 +213,7 @@ class GaussianBuilder(object):
                         affinity_map,
                         affinity_bbox.copy(),
                         self.enlarge_affinity,
+                        horizontal_text_bools[i],
                         map_type="affinity",
                     )
                     all_affinity_bbox.append(np.expand_dims(affinity_bbox, axis=0))

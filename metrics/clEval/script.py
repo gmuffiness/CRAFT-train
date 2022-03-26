@@ -7,14 +7,14 @@ import numpy as np
 import Polygon as polygon3
 from shapely.geometry import Point
 
-from metrics.clEval.file_utils import load_zip_file, load_dir_file, decode_utf8, make_zip
+from metrics.clEval.file_utils import load_zip_file, load_dir_file, decode_utf8
 from metrics.clEval.validation import validate_data
 from metrics.clEval.arg_parser import PARAMS
 
 import concurrent.futures
 from tqdm import tqdm
 import pandas as pd
-
+import zipfile
 
 
 
@@ -663,10 +663,15 @@ def eval_single_result(gt_file, det_file):
     if PARAMS.E2E:
         PARAMS.TRANSCRIPTION = True
 
-    gt_boxes = rrc_evaluation_funcs.parse_single_file(gt_file, PARAMS.CRLF, PARAMS.BOX_TYPE, True, False)
+    gt_boxes = rrc_evaluation_funcs.parse_single_file(gt_file, PARAMS.CRLF, PARAMS.GT_BOX_TYPE, True, False)
     sample_result.prepare_gt(gt_boxes)
-    det_boxes = rrc_evaluation_funcs.parse_single_file(det_file, PARAMS.CRLF, PARAMS.BOX_TYPE,
+
+    det_boxes = rrc_evaluation_funcs.parse_single_file(det_file, PARAMS.CRLF, PARAMS.PRED_BOX_TYPE,
                                                        PARAMS.TRANSCRIPTION, PARAMS.CONFIDENCES)
+
+
+
+
     sample_result.prepare_det(det_boxes)
     sample_result.evaluation()
     return sample_result.to_dict()
@@ -742,20 +747,37 @@ def cleval_evaluation(gt_file, submit_file):
     return resDict
 
 
+def make_zip(dir_path, check_file, save_path):
 
-def main(gt_dir, pred_dir, BOX_TYPE='QUAD', TRANSCRIPTION=False, CONFIDENCES=False, CRLF=False):
+    if not os.path.exists(os.path.join(save_path,'zip')):
+        os.makedirs(os.path.join(save_path,'zip'))
+
+
+    with zipfile.ZipFile(save_path + '/zip/{}.zip'.format(check_file), 'w') as compzip:
+        for file in os.listdir(dir_path):
+            if file.endswith("_{}.txt".format(check_file)):
+                    compzip.write(os.path.join(dir_path,file))
+
+
+
+
+def main(gt_dir, pred_dir, GT_BOX_TYPE='QUAD', PRED_BOX_TYPE='QUAD', TRANSCRIPTION=False, CONFIDENCES=False, CRLF=False):
 
 
     # change ocr parameters to cleval
 
     PARAMS.GT_PATH = gt_dir
     PARAMS.SUBMIT_PATH = pred_dir
-    PARAMS.BOX_TYPE = BOX_TYPE
+    PARAMS.GT_BOX_TYPE = GT_BOX_TYPE
+    PARAMS.PRED_BOX_TYPE = PRED_BOX_TYPE
     PARAMS.TRANSCRIPTION = TRANSCRIPTION
     PARAMS.CONFIDENCES = CONFIDENCES
     PARAMS.CONFIDENCES = CRLF
 
 
+
+    #make_zip(gt_dir, 'label', pred_dir)
+    #make_zip(pred_dir, 'pred', pred_dir)
 
     # evaluate dectection
     result = rrc_evaluation_funcs.main_evaluation(validate_data, cleval_evaluation, show_result=False)
@@ -765,7 +787,7 @@ def main(gt_dir, pred_dir, BOX_TYPE='QUAD', TRANSCRIPTION=False, CONFIDENCES=Fal
     pref = result['method']['Detection']['hmean']
 
     print("precision, recall, H:")
-    print("%0.1f, %0.1f, %0.1f" % (pr, re, pref))
+    print("%0.3f, %0.3f, %0.3f" % (pr, re, pref))
 
 
     result_dict = {"precision": None, "recall": None, "hmean": None}

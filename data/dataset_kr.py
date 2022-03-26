@@ -35,12 +35,11 @@ def hierarchical_dataset(root, config, select_data='/'):
             dataset = SynthTextDataSet_kr(
                 output_size=config.train.data.output_size,
                 data_dir=lmdb_path,
-                saved_gt_dir=config.data_dir.synthtext_gt,
                 gauss_init_size=config.train.data.gauss_init_size,
                 gauss_sigma=config.train.data.gauss_sigma,
                 enlarge_region=config.train.data.enlarge_region,
                 enlarge_affinity=config.train.data.enlarge_affinity,
-                aug=config.train.data.syn_aug,
+                aug=config.train.data.syn_kor_aug,
                 vis_opt=config.train.data.vis_opt,
             )
 
@@ -138,10 +137,10 @@ class SynthTextDataSet_kr(Dataset):
 
 
         region_score = self.gaussian_builder.generate_region(
-            img_h, img_w, word_level_char_bbox
+            img_h, img_w, word_level_char_bbox, horizontal_text_bools=[True for _ in range(len(words))]
         )
         affinity_score, _ = self.gaussian_builder.generate_affinity(
-            img_h, img_w, word_level_char_bbox
+            img_h, img_w, word_level_char_bbox, horizontal_text_bools=[True for _ in range(len(words))]
         )
 
 
@@ -189,9 +188,18 @@ class SynthTextDataSet_kr(Dataset):
                     augment_targets, word_level_char_bbox, self.output_size
                 )
             elif self.aug.random_crop.version == "random_resize_crop":
+                augment_targets = random_resize_crop(
+                    augment_targets,
+                    self.aug.random_crop.scale,
+                    self.aug.random_crop.ratio,
+                    self.output_size,
+                    self.aug.random_crop.rnd_threshold
+            )
+            elif self.aug.random_crop.version == "random_resize_crop_synth":
                 augment_targets = random_resize_crop_synth(
                     augment_targets, self.output_size
                 )
+
             else:
                 assert "Undefined RandomCrop version"
 

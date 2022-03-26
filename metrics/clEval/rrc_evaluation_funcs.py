@@ -25,7 +25,7 @@ def convert_LTRB2QUAD(points):
     return new_points
     
    
-def parse_values_from_single_line(line, withTranscription=False, withConfidence=False, img_width=0, img_height=0) -> Box:
+def parse_values_from_single_line(line, withTranscription=False, withConfidence=False, img_width=0, img_height=0, BOX_TYPE=False) -> Box:
     """
     Validate the format of line. If the line is not valid, an exception will be raised.
     If max_width, and max_height are specified, all poi
@@ -57,7 +57,10 @@ def parse_values_from_single_line(line, withTranscription=False, withConfidence=
     box_type = None
     
     numPoints = 4
-    
+
+    PARAMS.BOX_TYPE = BOX_TYPE
+
+
     if PARAMS.BOX_TYPE == "LTRB":
         box_type = QUAD
         numPoints = 4
@@ -213,7 +216,7 @@ def validate_clockwise_points(points):
         raise Exception("Points are not clockwise. The coordinates of bounding quadrilaterals have to be given in clockwise order. Regarding the correct interpretation of 'clockwise' remember that the image coordinate system used is the standard one, with the image origin at the upper left, the X axis extending to the right and Y axis extending downwards.")
 
 
-def parse_single_file(content, CRLF=True, LTRB=True, withTranscription=False, withConfidence=False, img_width=0, img_height=0, sort_by_confidences=True):
+def parse_single_file(content, CRLF=True, BOX_TYPE=True, withTranscription=False, withConfidence=False, img_width=0, img_height=0, sort_by_confidences=True):
     """
     Returns all points, confindences and transcriptions of a file in lists. Valid line formats:
     xmin,ymin,xmax,ymax,[confidence],[transcription]
@@ -225,7 +228,10 @@ def parse_single_file(content, CRLF=True, LTRB=True, withTranscription=False, wi
     for line in lines:
         line = line.replace("\r", "").replace("\n", "")
         if line != "":
-            result_box = parse_values_from_single_line(line, withTranscription, withConfidence, img_width, img_height)
+            if len(line.split(',')) < 8:
+                BOX_TYPE = "LTRB"
+
+            result_box = parse_values_from_single_line(line, withTranscription, withConfidence, img_width, img_height, BOX_TYPE)
             result_boxes.append(result_box)
 
     if withConfidence and len(result_boxes) and sort_by_confidences:
