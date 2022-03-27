@@ -235,7 +235,7 @@ class Trainer(object):
         epoch = 0
         start_time = time.time()
         while train_step < whole_training_step:
-            self.trn_sampler.set_epoch(epoch)
+            self.trn_sampler.set_epoch(train_step)
             for index, (
                 image,
                 region_image,
@@ -347,8 +347,8 @@ class Trainer(object):
 
                     # validation
                     self.iou_eval("icdar2013", train_step, save_param_path)
-                    self.cleval("prescription", train_step, save_param_path)
                     #self.cleval("icdar2013", train_step, save_param_path)
+                    self.cleval("prescription", train_step, save_param_path)
 
 
 
@@ -376,6 +376,7 @@ class Trainer(object):
             torch.save(save_param_dic, save_param_path)
             # NOTE
             self.iou_eval("icdar2013", train_step, save_param_path)
+            #self.cleval("icdar2013", train_step, save_param_path)
             self.cleval("prescription", train_step, save_param_path)
 
             if self.config.wandb_opt:

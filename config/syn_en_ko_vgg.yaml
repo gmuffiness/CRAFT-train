@@ -11,10 +11,10 @@ data_dir:
   prescription: "/data/prescription/"
 
 train:
-  backbone : resnet
+  backbone : vgg
   dataset: ["synthtext","synthtext_kor"]
   ckpt_path: null
-  batch_size: 24
+  batch_size: 40
   st_iter: 0
   end_iter: 60000
   lr: 0.0001
@@ -24,7 +24,7 @@ train:
   num_workers: 4
   amp: True
   loss: 2
-  neg_rto: 0.5
+  neg_rto: 0.3
   n_min_neg: 5000
   data:
     vis_opt: False

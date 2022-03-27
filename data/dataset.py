@@ -53,7 +53,7 @@ class SynthTextDataSet(Dataset):
         self.vis_test_dir = vis_test_dir
         self.vis_opt = vis_opt
         self.sample = sample
-        if self.sample != None:
+        if self.sample != -1:
             random.seed(0)
             self.idx = random.sample(range(0, len(self.img_names)), self.sample)
 
@@ -138,7 +138,8 @@ class SynthTextDataSet(Dataset):
             scale = float(self.output_size) / min(h, w)
         else:
             scale = 1.0
-        image = cv2.resize(image, dsize=None, fx=scale, fy=scale)
+        image = cv2.resize(image, dsize=None, fx=scale, fy=scale,
+                           interpolation=cv2.INTER_CUBIC)
         char_bbox *= scale
         return image, char_bbox
 
@@ -200,18 +201,19 @@ class SynthTextDataSet(Dataset):
 
         return np.array(image), region_score, affinity_score, confidence_mask
 
-    def resize_to_half(self, ground_truth):
-        return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2))
+    def resize_to_half(self, ground_truth, interpolation):
+        return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2),
+                          interpolation=interpolation)
 
 
     def __len__(self):
-        if self.sample != None:
+        if self.sample != -1:
             return len(self.idx)
         else:
             return len(self.img_names)
 
     def __getitem__(self, index):
-        if self.sample != None:
+        if self.sample != -1:
             index = self.idx[index]
 
         (
@@ -227,9 +229,9 @@ class SynthTextDataSet(Dataset):
             image, region_score, affinity_score, confidence_mask, word_level_char_bbox
         )
 
-        region_score = self.resize_to_half(region_score)
-        affinity_score = self.resize_to_half(affinity_score)
-        confidence_mask = self.resize_to_half(confidence_mask)
+        region_score = self.resize_to_half(region_score, interpolation=cv2.INTER_CUBIC)
+        affinity_score = self.resize_to_half(affinity_score, interpolation=cv2.INTER_CUBIC)
+        confidence_mask = self.resize_to_half(confidence_mask, interpolation=cv2.INTER_NEAREST)
 
         image = imgproc.normalizeMeanVariance(
             np.array(image), mean=(0.485, 0.456, 0.406), variance=(0.229, 0.224, 0.225)
@@ -421,8 +423,8 @@ class ICDAR2015(Dataset):
         affinity_score = cv2.imread(saved_affi_scores_path, cv2.IMREAD_GRAYSCALE)
         confidence_mask = cv2.imread(saved_cf_mask_path, cv2.IMREAD_GRAYSCALE)
 
-        region_score = cv2.resize(region_score, (img_w, img_h))
-        affinity_score = cv2.resize(affinity_score, (img_w, img_h))
+        region_score = cv2.resize(region_score, (img_w, img_h), interpolation=cv2.INTER_CUBIC)
+        affinity_score = cv2.resize(affinity_score, (img_w, img_h), interpolation=cv2.INTER_CUBIC)
         confidence_mask = cv2.resize(confidence_mask, (img_w, img_h),
                                      interpolation=cv2.INTER_NEAREST)
 
@@ -561,8 +563,8 @@ class ICDAR2015(Dataset):
                 confidence_mask,
             )
 
-        region_score = self.resize_to_half(region_score, interpolation=cv2.INTER_AREA)
-        affinity_score = self.resize_to_half(affinity_score, interpolation=cv2.INTER_AREA)
+        region_score = self.resize_to_half(region_score, interpolation=cv2.INTER_CUBIC)
+        affinity_score = self.resize_to_half(affinity_score, interpolation=cv2.INTER_CUBIC)
         confidence_mask = self.resize_to_half(confidence_mask, interpolation=cv2.INTER_NEAREST)
 
         image = imgproc.normalizeMeanVariance(

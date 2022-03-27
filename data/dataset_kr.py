@@ -159,7 +159,7 @@ class SynthTextDataSet_kr(Dataset):
             scale = float(self.output_size + 10) / min(h, w)
         else:
             scale = 1.0
-        image = cv2.resize(image, dsize=None, fx=scale, fy=scale)
+        image = cv2.resize(image, dsize=None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
         char_bbox *= scale
         return image, char_bbox
 
@@ -220,8 +220,9 @@ class SynthTextDataSet_kr(Dataset):
 
         return np.array(image), region_score, affinity_score, confidence_mask
 
-    def resize_to_half(self, ground_truth):
-        return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2))
+    def resize_to_half(self, ground_truth, interpolation):
+        return cv2.resize(ground_truth, (self.output_size // 2, self.output_size // 2),
+                          interpolation=interpolation)
 
     def __len__(self):
 
@@ -272,9 +273,9 @@ class SynthTextDataSet_kr(Dataset):
 
         # self.logging = False
 
-        region_score = self.resize_to_half(region_score)
-        affinity_score = self.resize_to_half(affinity_score)
-        confidence_mask = self.resize_to_half(confidence_mask)
+        region_score = self.resize_to_half(region_score, interpolation=cv2.INTER_CUBIC)
+        affinity_score = self.resize_to_half(affinity_score, interpolation=cv2.INTER_CUBIC)
+        confidence_mask = self.resize_to_half(confidence_mask, interpolation=cv2.INTER_NEAREST)
 
         image = imgproc.normalizeMeanVariance(
             np.array(image), mean=(0.485, 0.456, 0.406), variance=(0.229, 0.224, 0.225)
