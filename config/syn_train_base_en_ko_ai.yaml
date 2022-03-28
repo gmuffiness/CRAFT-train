@@ -7,12 +7,12 @@ data_dir:
   synthtext_gt: NULL
   synthtext_kor : "/data/SynthText-KR"
   ai_hub : "/data/ai-hub-data/textinthewild_data/all_image"
-  ai_hub_gt : "/nas/datahub/ai-hub-data/textinthewild_data/last_new_a100.json"
+  ai_hub_gt : "/data/ai-hub-data/textinthewild_data/last_new_a100.json"
   prescription: "/data/prescription/"
 
 train:
   backbone : vgg
-  dataset: ["synthtext", "synthtext_kor"] # option : [synthtext, synthtext_kor, ai_hub]
+  dataset: ["synthtext", "synthtext_kor", "ai_hub"] # option : [synthtext, synthtext_kor, ai_hub]
   ckpt_path: null
   batch_size: 36
   st_iter: 0
