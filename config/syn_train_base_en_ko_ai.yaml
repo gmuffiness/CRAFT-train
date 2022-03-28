@@ -12,7 +12,7 @@ data_dir:
 
 train:
   backbone : vgg
-  dataset: ["synthtext","synthtext_kor","ai_hub"]
+  dataset: ["synthtext_kor"]
   ckpt_path: null
   batch_size: 6
   st_iter: 0
@@ -100,8 +100,8 @@ train:
 
 
 test:
+  trained_model: null
   icdar2013:
-    trained_model: null
     cuda: True
     vis_opt: True
     test_data_dir : "/nas/datahub/ICDAR2013/"
@@ -112,7 +112,6 @@ test:
     mag_ratio: 1.5
     poly: False
   icdar2015:
-    trained_model: null
     cuda: True
     vis_opt: True
     test_data_dir: "/nas/datahub/ICDAR2015/"
@@ -123,7 +122,6 @@ test:
     mag_ratio: 1.75
     poly: False
   prescription:
-    trained_model: null
     cuda: True
     vis_opt: True
     test_data_dir: "/nas/datahub/prescription/"

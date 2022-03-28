@@ -133,7 +133,7 @@ class Trainer(object):
         test_config = DotDict(self.config.test[dataset])
 
         val_result_dir = os.path.join(
-            self.config.results_dir, "{}/{}".format(dataset, str(train_step))
+            self.config.results_dir, "{}/{}".format(dataset+"_iou", str(train_step))
         )
 
         evaluator = DetectionIoUEvaluator()
@@ -157,7 +157,7 @@ class Trainer(object):
         test_config = DotDict(self.config.test[dataset])
 
         val_result_dir = os.path.join(
-            self.config.results_dir, "{}/{}".format(dataset, str(train_step))
+            self.config.results_dir, "{}/{}".format(dataset+"_cl", str(train_step))
         )
 
         metrics = main_cleval(
@@ -319,7 +319,7 @@ class Trainer(object):
                         wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
 
-                if train_step % 500 == 0 and train_step != 0 and self.gpu == 0:
+                if train_step % 50 == 0 and train_step != 0 and self.gpu == 0:
 
                     print("Saving state, index:", train_step)
                     save_param_dic = {
@@ -347,8 +347,11 @@ class Trainer(object):
 
                     # validation
                     self.iou_eval("icdar2013", train_step, save_param_path)
+                    self.iou_eval("prescription", train_step, save_param_path)
+
                     self.cleval("prescription", train_step, save_param_path)
-                    #self.cleval("icdar2013", train_step, save_param_path)
+                    self.cleval("icdar2013", train_step, save_param_path)
+                    self.cleval("icdar2015", train_step, save_param_path)
 
 
 

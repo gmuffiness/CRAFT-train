@@ -3,6 +3,7 @@
 import argparse
 import os
 
+import json
 import cv2
 import numpy as np
 import torch
@@ -21,7 +22,8 @@ from utils.inference_boxes import (
     load_icdar2015_gt,
     load_icdar2013_gt,
     load_synthtext_gt,
-    load_prescription_cleval_gt
+    load_prescription_cleval_gt,
+    load_prescription_gt
 )
 from utils.util import copyStateDict
 from data import imgproc
@@ -236,7 +238,7 @@ def overlay(image, region, affinity, single_img_bbox):
     return temp3
 
 
-def load_test_dataset(test_folder_name, config):
+def load_test_dataset_iou(test_folder_name, config):
     # TODO if문을 삭제할 수 있지 않을까??
 
     if test_folder_name == "synthtext":
@@ -251,12 +253,41 @@ def load_test_dataset(test_folder_name, config):
             dataFolder=config.test_data_dir)
     # NOTE
     elif test_folder_name == "prescription":
-        total_bboxes_gt, total_img_path = load_prescription_cleval_gt(
+        total_bboxes_gt, total_img_path = load_prescription_gt(
             dataFolder=config.test_data_dir)
+
+
+
     else:
         print("not found test dataset")
 
     return total_bboxes_gt, total_img_path
+
+
+def load_test_dataset_cl(test_folder_name, config):
+    # TODO if문을 삭제할 수 있지 않을까??
+
+    if test_folder_name == "synthtext":
+        total_bboxes_gt, total_img_path = load_synthtext_gt(config.test_data_dir)
+
+    elif test_folder_name == "icdar2013":
+        total_bboxes_gt, total_img_path = load_icdar2013_gt(
+            dataFolder=config.test_data_dir)
+
+    elif test_folder_name == "icdar2015":
+        total_bboxes_gt, total_img_path = load_icdar2015_gt(
+            dataFolder=config.test_data_dir)
+
+    elif test_folder_name == "prescription":
+        total_bboxes_gt, total_img_path = load_prescription_cleval_gt(
+            dataFolder=config.test_data_dir)
+
+    else:
+        print("not found test dataset")
+
+    return total_bboxes_gt, total_img_path
+
+
 
 
 def viz_test(img, pre_output, pre_box, gt_box, img_name, result_dir, test_folder_name):
@@ -320,7 +351,7 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, viz=True):
     model.eval()
     # ------------------------------------------------------------------------------------------------------------------#
 
-    total_imgs_bboxes_gt, total_imgs_path = load_test_dataset(test_set, config)
+    total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_iou(test_set, config)
 
     # -----------------------------------------------------------------------------------------------------------------#
     canvas_size = config.canvas_size
@@ -381,10 +412,11 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, viz=True):
     metrics = evaluator.combine_results(results)
     print(metrics)
 
-    # with open(os.path.join(result_dir, "error_idx.txt"), "w") as f:
-    #     f.write(" ".join(error_idx))
 
-    # wandb.log({"precision": metrics['precision'], "recall": metrics['recall'], "hmean": metrics['hmean']})
+    # save result
+    with open(os.path.join(result_dir,"result.txt"), "w") as f:
+        f.write(json.dumps(metrics))
+
     return metrics
 
 
@@ -427,7 +459,7 @@ def main_cleval(model_path, backbone, config, result_dir, viz=True):
     model.eval()
     # ------------------------------------------------------------------------------------------------------------------#
 
-    total_imgs_bboxes_gt, total_imgs_path = load_test_dataset(test_set, config)
+    total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_cl(test_set, config)
 
     # -----------------------------------------------------------------------------------------------------------------#
 
@@ -491,14 +523,27 @@ def main_cleval(model_path, backbone, config, result_dir, viz=True):
     else:
        GT_BOX_TYPE = "QUAD"
 
-
     metrics = clEval.main(gt_cl_dir, result_dir, GT_BOX_TYPE=GT_BOX_TYPE,PRED_BOX_TYPE="QUAD")
 
     print('Finish : detection evaluation' + '-' * 50)
 
+    # save result
+    with open(os.path.join(result_dir,"result.txt"), "w") as f:
+        f.write(json.dumps(metrics))
+
     return metrics
 
+def cal_eval(config, data, res_dir_name, opt):
+    evaluator = DetectionIoUEvaluator()
+    test_config = DotDict(config.test[data])
+    res_dir = os.path.join(os.path.join("exp", args.yaml), "{}".format(res_dir_name))
 
+    if opt == "iou_eval":
+        main_eval(config.test.trained_model, config.train.backbone, test_config, evaluator, res_dir)
+    elif opt == "cl_eval":
+        main_cleval(config.test.trained_model, config.train.backbone, test_config, res_dir)
+    else:
+        print("not evaluation")
 
 
 if __name__ == "__main__":
@@ -517,9 +562,6 @@ if __name__ == "__main__":
     config = load_yaml(args.yaml)
     config = DotDict(config)
 
-    # Make result_dir
-    res_dir = os.path.join(os.path.join("exp", args.yaml), "result1")
-    config.results_dir = res_dir
 
     # wandb
     if config["wandb_opt"]:
@@ -527,7 +569,10 @@ if __name__ == "__main__":
         # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
         wandb.config.update(config)
 
-    evaluator = DetectionIoUEvaluator()
-    test_config = DotDict(config.test["icdar2013"])
 
-    main_cleval(test_config.trained_model, config.train.backbone, test_config, res_dir)
+
+    cal_eval(config, "icdar2013", "resnet-en-ko-ai-13-cl", opt="cl_eval")
+    #cal_eval(config, "icdar2015", "resnet-en-ko-ai-15-iou", opt="iou_eval")
+    cal_eval(config, "prescription", "resnet-en-ko-ai-pre-cl", opt="cl_eval")
+
+

@@ -11,6 +11,119 @@ from torch.autograd import Variable
 from utils.craft_utils import getDetBoxes, adjustResultCoordinates
 from data import imgproc
 from data.dataset import SynthTextDataSet
+import math
+import xml.etree.ElementTree as elemTree
+
+
+#-------------------------------------------------------------------------------------------------------------------#
+def rotatePoint(xc, yc, xp, yp, theta):
+    xoff = xp - xc
+    yoff = yp - yc
+
+    cosTheta = math.cos(theta)
+    sinTheta = math.sin(theta)
+    pResx = cosTheta * xoff + sinTheta * yoff
+    pResy = - sinTheta * xoff + cosTheta * yoff
+    # pRes = (xc + pResx, yc + pResy)
+    return int(xc + pResx), int(yc + pResy)
+
+def addRotatedShape(cx, cy, w, h, angle):
+    p0x, p0y = rotatePoint(cx, cy, cx - w / 2, cy - h / 2, -angle)
+    p1x, p1y = rotatePoint(cx, cy, cx + w / 2, cy - h / 2, -angle)
+    p2x, p2y = rotatePoint(cx, cy, cx + w / 2, cy + h / 2, -angle)
+    p3x, p3y = rotatePoint(cx, cy, cx - w / 2, cy + h / 2, -angle)
+
+    points = [[p0x, p0y], [p1x, p1y], [p2x, p2y], [p3x, p3y]]
+
+    return points
+
+def xml_parsing(xml):
+    tree = elemTree.parse(xml)
+
+    annotations = []  # Initialize the list to store labels
+    iter_element = tree.iter(tag="object")
+
+    for element in iter_element:
+        annotation = {}  # Initialize the dict to store labels
+
+        annotation['name'] = element.find("name").text  # Save the name tag value
+
+        box_coords = element.iter(tag="robndbox")
+
+        for box_coord in box_coords:
+            cx = float(box_coord.find("cx").text)
+            cy = float(box_coord.find("cy").text)
+            w = float(box_coord.find("w").text)
+            h = float(box_coord.find("h").text)
+            angle = float(box_coord.find("angle").text)
+
+            convertcoodi = addRotatedShape(cx, cy, w, h, angle)
+
+            annotation['box_coodi'] = convertcoodi
+            annotations.append(annotation)
+
+        box_coords = element.iter(tag="bndbox")
+
+        for box_coord in box_coords:
+            xmin = int(box_coord.find("xmin").text)
+            ymin = int(box_coord.find("ymin").text)
+            xmax = int(box_coord.find("xmax").text)
+            ymax = int(box_coord.find("ymax").text)
+            # annotation['bndbox'] = [xmin,ymin,xmax,ymax]
+
+            annotation['box_coodi'] = [[xmin, ymin], [xmax, ymin], [xmax, ymax],
+                                       [xmin, ymax]]
+            annotations.append(annotation)
+
+
+
+
+    bounds = []
+    for i in range(len(annotations)):
+        box_info_dict = {"points": None, "text": None, "ignore": None}
+
+        box_info_dict["points"] = np.array(annotations[i]['box_coodi'])
+        if annotations[i]['name'] == "dnc":
+            box_info_dict["text"] = "###"
+            box_info_dict["ignore"] = True
+        else:
+            box_info_dict["text"] = annotations[i]['name']
+            box_info_dict["ignore"] = False
+
+        bounds.append(box_info_dict)
+
+
+
+    return bounds
+
+#-------------------------------------------------------------------------------------------------------------------#
+
+def load_prescription_gt(dataFolder):
+
+
+    total_img_path = []
+    total_imgs_bboxes = []
+    for (root, directories, files) in os.walk(dataFolder):
+        for file in files:
+            if '.jpg' in file:
+                img_path = os.path.join(root, file)
+                total_img_path.append(img_path)
+            if '.xml' in file:
+                gt_path = os.path.join(root, file)
+                total_imgs_bboxes.append(gt_path)
+
+
+    total_imgs_parsing_bboxes = []
+    for img_path, bbox in zip(sorted(total_img_path), sorted(total_imgs_bboxes)):
+        # check file
+
+        assert img_path.split(".jpg")[0] == bbox.split(".xml")[0]
+
+        result_label = xml_parsing(bbox)
+        total_imgs_parsing_bboxes.append(result_label)
+
+
+    return total_imgs_parsing_bboxes, sorted(total_img_path)
 
 
 # NOTE
