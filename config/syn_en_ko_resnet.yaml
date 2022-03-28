@@ -14,7 +14,7 @@ train:
   backbone : resnet
   dataset: ["synthtext","synthtext_kor"]
   ckpt_path: null
-  batch_size: 24
+  batch_size: 40
   st_iter: 0
   end_iter: 60000
   lr: 0.0001
@@ -24,7 +24,7 @@ train:
   num_workers: 4
   amp: True
   loss: 2
-  neg_rto: 0.5
+  neg_rto: 0.3
   n_min_neg: 5000
   data:
     vis_opt: False
@@ -80,8 +80,8 @@ train:
 
 
 test:
-  trained_model: null
   icdar2013:
+    trained_model: null
     cuda: True
     vis_opt: True
     test_data_dir : "/data/ICDAR2013/"
@@ -92,6 +92,7 @@ test:
     mag_ratio: 1.5
     poly: False
   icdar2015:
+    trained_model: null
     cuda: True
     vis_opt: True
     test_data_dir: "/data/ICDAR2015/"
@@ -102,6 +103,7 @@ test:
     mag_ratio: 1.75
     poly: False
   prescription:
+    trained_model: null
     cuda: True
     vis_opt: True
     test_data_dir: "/data/prescription/"
