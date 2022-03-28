@@ -5,16 +5,16 @@ wandb_opt: False
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
-  synthtext_kor : "/nas/datahub/SynthText-KR"
-  ai_hub : "/nas/datahub/ai-hub-data/textinthewild_data/all_image"
+  synthtext_kor : "/data/SynthText-KR"
+  ai_hub : "/data/ai-hub-data/textinthewild_data/all_image"
   ai_hub_gt : "/nas/datahub/ai-hub-data/textinthewild_data/last_new_a100.json"
-  prescription: "/nas/datahub/prescription/"
+  prescription: "/data/prescription/"
 
 train:
   backbone : vgg
-  dataset: ["synthtext_kor"]
+  dataset: ["synthtext", "synthtext_kor"] # option : [synthtext, synthtext_kor, ai_hub]
   ckpt_path: null
-  batch_size: 6
+  batch_size: 36
   st_iter: 0
   end_iter: 60000
   lr: 0.0001
@@ -23,9 +23,9 @@ train:
   weight_decay: 0.00001
   num_workers: 4
   amp: True
-  loss: 3
-  neg_rto: 1
-  n_min_neg: 1000
+  loss: 2
+  neg_rto: 0.3
+  n_min_neg: 5000
   data:
     vis_opt: False
     output_size: 768
@@ -33,14 +33,14 @@ train:
     enlarge_affinity: [0.5, 0.5]
     gauss_init_size: 200
     gauss_sigma: 40
-    syn_sample : 150000
+    syn_sample : -1
     syn_aug:
       random_scale:
         range: [1.0, 1.5, 2.0]
         option: False
       random_rotate:
         max_angle: 20
-        option: False
+        option: True
       random_crop:
         version: "random_resize_crop_synth"
         scale: [0.333, 1.0]
@@ -50,8 +50,8 @@ train:
       random_horizontal_flip:
         option: False
       random_colorjitter:
-        brightness: 0.2
-        contrast: 0.2
+        brightness: 0.3
+        contrast: 0.3
         saturation: 0.2
         hue: 0.2
         option: False
@@ -61,7 +61,7 @@ train:
         option: False
       random_rotate:
         max_angle: 20
-        option: False
+        option: True
       random_crop:
         version: "random_resize_crop_synth"
         scale: [ 0.333, 1.0 ]
@@ -71,8 +71,8 @@ train:
       random_horizontal_flip:
         option: False
       random_colorjitter:
-        brightness: 0.2
-        contrast: 0.2
+        brightness: 0.3
+        contrast: 0.3
         saturation: 0.2
         hue: 0.2
         option: False
@@ -82,7 +82,7 @@ train:
         option: False
       random_rotate:
         max_angle: 20
-        option: False
+        option: True
       random_crop:
         version: "random_resize_crop"
         scale: [ 0.2, 0.8 ]
@@ -92,8 +92,8 @@ train:
       random_horizontal_flip:
         option: False
       random_colorjitter:
-        brightness: 0.2
-        contrast: 0.2
+        brightness: 0.3
+        contrast: 0.3
         saturation: 0.2
         hue: 0.2
         option: False
@@ -104,7 +104,7 @@ test:
   icdar2013:
     cuda: True
     vis_opt: True
-    test_data_dir : "/nas/datahub/ICDAR2013/"
+    test_data_dir : "/data/ICDAR2013/"
     text_threshold: 0.85 # ICDAR2015 0.85
     low_text: 0.5 # ICDAR2015 0.5
     link_threshold: 0.2 # ICDAR2013: 0.2
@@ -114,7 +114,7 @@ test:
   icdar2015:
     cuda: True
     vis_opt: True
-    test_data_dir: "/nas/datahub/ICDAR2015/"
+    test_data_dir: "/data/ICDAR2015/"
     text_threshold: 0.85 # ICDAR2015 0.85
     low_text: 0.5 # ICDAR2015 0.5
     link_threshold: 0.2 # ICDAR2013: 0.2
@@ -124,10 +124,10 @@ test:
   prescription:
     cuda: True
     vis_opt: True
-    test_data_dir: "/nas/datahub/prescription/"
-    text_threshold: 0.1 # ICDAR2015 0.85
-    low_text: 0.25 # ICDAR2015 0.5
-    link_threshold: 0.4 # ICDAR2013: 0.2
+    test_data_dir: "/data/prescription/"
+    text_threshold: 0.1
+    low_text: 0.25
+    link_threshold: 0.4
     canvas_size: 2560
     mag_ratio: 1.
     poly: False

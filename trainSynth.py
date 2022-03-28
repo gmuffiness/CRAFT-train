@@ -41,7 +41,7 @@ class Trainer(object):
         total_trn_dataset = []
 
         if "synthtext" in self.config.train.dataset:
-            #eng-syn
+            # eng-syn
             synth_dataset = SynthTextDataSet(
                 output_size=self.config.train.data.output_size,
                 data_dir=self.config.data_dir.synthtext,
@@ -58,7 +58,7 @@ class Trainer(object):
             total_trn_dataset.append(synth_dataset)
 
         if "ai_hub" in self.config.train.dataset:
-            # # ai-hub
+            # ai-hub
             ai_hub_dataset = AiHubDataset(
                 output_size=self.config.train.data.output_size,
                 data_dir=self.config.data_dir.ai_hub,
@@ -73,16 +73,15 @@ class Trainer(object):
             total_trn_dataset.append(ai_hub_dataset)
 
         if "synthtext_kor" in self.config.train.dataset:
-            # # # kor-syn
+            # kor-syn
             data_path_kr = self.config.data_dir.synthtext_kor
             total_trn_dataset.extend(hierarchical_dataset(root=data_path_kr, config=self.config))
 
+        total_trn_dataset = ConcatDataset(total_trn_dataset)
 
-        dataloader = ConcatDataset(total_trn_dataset)
-
-        trn_sampler = torch.utils.data.distributed.DistributedSampler(dataloader)
+        trn_sampler = torch.utils.data.distributed.DistributedSampler(total_trn_dataset)
         trn_loader = torch.utils.data.DataLoader(
-            dataloader,
+            total_trn_dataset,
             batch_size=self.config.train.batch_size,
             shuffle=False,
             num_workers=self.config.train.num_workers,
@@ -188,8 +187,6 @@ class Trainer(object):
         # load model
         if self.config.train.ckpt_path is not None:
             craft.load_state_dict(copyStateDict(self.net_param["craft"]))
-
-
         craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
         torch.cuda.set_device(self.gpu)
         craft = craft.cuda(self.gpu)
@@ -319,7 +316,7 @@ class Trainer(object):
                         wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
 
-                if train_step % 50 == 0 and train_step != 0 and self.gpu == 0:
+                if train_step % 500 == 0 and train_step != 0 and self.gpu == 0:
 
                     print("Saving state, index:", train_step)
                     save_param_dic = {
