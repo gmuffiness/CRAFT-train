@@ -1,26 +1,18 @@
 # -*- coding: utf-8 -*-
 import argparse
-from collections import OrderedDict
 import os
 import shutil
 import time
-import cv2
 import numpy as np
-from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.backends.cudnn as cudnn
-from torch.autograd import Variable
-from torchvision.transforms.functional import to_pil_image
 from torch.utils.data import ConcatDataset
 import wandb
 import yaml
 
 from config.load_config import load_yaml, DotDict
 from data.dataset import SynthTextDataSet, SynthTextDataSet_KR, hierarchical_dataset, AiHubDataset
-# from data.dataset_kr import SynthTextDataSet_kr, hierarchical_dataset
-# from data.dataset_ai_hub import AiHubDataset
 from eval_v2 import main_eval, main_cleval
 from loss.mseloss import Maploss, Maploss_v2, Maploss_v3
 from model.craft import CRAFT
@@ -96,8 +88,6 @@ class Trainer(object):
         )
 
         return trn_loader, trn_sampler
-
-
 
     def get_load_param(self, gpu):
 
