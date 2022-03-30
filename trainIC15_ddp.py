@@ -1,19 +1,13 @@
 # -*- coding: utf-8 -*-
 import argparse
-from collections import OrderedDict
 import os
 import shutil
 import time
 
-import cv2
 import numpy as np
-from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.backends.cudnn as cudnn
-from torch.autograd import Variable
-from torchvision.transforms.functional import to_pil_image
 import wandb
 import yaml
 
@@ -62,38 +56,6 @@ class Trainer(object):
 
         return synth_loader
 
-    # def get_icdar_loader(self):
-    #
-    #     icdar15_dataset = ICDAR2015(
-    #         output_size=self.config.train.data.output_size,
-    #         data_dir=self.config.data_dir.ic15,
-    #         saved_gt_dir=self.config.data_dir.ic15_gt,
-    #         gauss_init_size=self.config.train.data.gauss_init_size,
-    #         gauss_sigma=self.config.train.data.gauss_sigma,
-    #         enlarge_region=self.config.train.data.enlarge_region,
-    #         enlarge_affinity=self.config.train.data.enlarge_affinity,
-    #         watershed_ver=self.config.train.data.watershed_version,
-    #         aug=self.config.train.data.icdar_aug,
-    #         vis_test_dir=self.config.vis_test_dir,
-    #         vis_opt=self.config.train.data.vis_opt,
-    #         pseudo_vis_opt=self.config.train.data.pseudo_vis_opt,
-    #     )
-    #
-    #
-    #     icdar15_sampler = torch.utils.data.distributed.DistributedSampler(icdar15_dataset)
-    #     icdar15_loader = torch.utils.data.DataLoader(
-    #         icdar15_dataset,
-    #         batch_size=self.config.train.batch_size,
-    #         shuffle=False,
-    #         num_workers=self.config.train.num_workers,
-    #         sampler=icdar15_sampler,
-    #         drop_last=False,
-    #         pin_memory=True,
-    #     )
-    #
-    #     return icdar15_loader
-
-
     def get_icdar_dataset(self):
 
         icdar15_dataset = ICDAR2015(
@@ -141,20 +103,24 @@ class Trainer(object):
             criterion = Maploss_v2()
         elif self.config.train.loss == 3:
             criterion = Maploss_v3()
+        else:
+            raise Exception("Undefined loss")
         return criterion
 
     def train(self):
 
         # MODEL -------------------------------------------------------------------------------------------------------#
         # SUPERVISION model
-        supervision_model = CRAFT(pretrained=True, amp=self.config.train.amp)
-        if self.config.train.ckpt_path is not None:
-            # supervision_model.load_state_dict(copyStateDict(self.net_param['craft']))
-            supervision_param = self.get_load_param(self.gpu+4)
-            supervision_model.load_state_dict(copyStateDict(supervision_param['craft']))
-            supevision_model = supervision_model.to(f'cuda:{self.gpu+4}')
-
-        print(f'Supervision model loading on : gpu {self.gpu+4}')
+        if self.config.data_dir.ic15_gt is None:
+            supervision_model = CRAFT(pretrained=True, amp=self.config.train.amp)
+            if self.config.train.ckpt_path is not None:
+                # supervision_model.load_state_dict(copyStateDict(self.net_param['craft']))
+                supervision_param = self.get_load_param(self.gpu+4)
+                supervision_model.load_state_dict(copyStateDict(supervision_param['craft']))
+                supervision_model = supervision_model.to(f'cuda:{self.gpu+4}')
+            print(f'Supervision model loading on : gpu {self.gpu+4}')
+        else:
+            supervision_model = None
 
         # TRAIN model
         craft = CRAFT(pretrained=True, amp=self.config.train.amp)
@@ -172,8 +138,9 @@ class Trainer(object):
         trn_syn_loader = self.get_synth_loader()
         batch_syn = iter(trn_syn_loader)
         trn_icdar_dataset = self.get_icdar_dataset()
-        trn_icdar_dataset.update_model(supervision_model)
-        trn_icdar_dataset.update_device(self.gpu+4)
+        if self.config.data_dir.ic15_gt is None:
+            trn_icdar_dataset.update_model(supervision_model)
+            trn_icdar_dataset.update_device(self.gpu+4)
 
         trn_icdar15_sampler = torch.utils.data.distributed.DistributedSampler(trn_icdar_dataset)
         trn_icdar_loader = torch.utils.data.DataLoader(
@@ -205,6 +172,8 @@ class Trainer(object):
 
             if self.config.train.ckpt_path is not None and self.config.train.st_iter != 0:
                 scaler.load_state_dict(copyStateDict(self.net_param["scaler"]))
+        else:
+            scaler = None
 
         criterion = self.get_loss()
 
@@ -227,7 +196,6 @@ class Trainer(object):
                 icdar_confidence_mask,
             ) in enumerate(trn_icdar_loader):
                 craft.train()
-                # print(f'In supervision model GPU {self.gpu} : {craft.module.conv_cls[-1].weight.reshape(2, -1)}')
                 if train_step > 0 and train_step % self.config.train.lr_decay == 0:
                     update_lr_rate_step += 1
                     training_lr = self.adjust_learning_rate(
@@ -250,7 +218,7 @@ class Trainer(object):
                 syn_confidence_mask = syn_confidence_mask.cuda(self.gpu, non_blocking=True)
                 icdar_confidence_mask = icdar_confidence_mask.cuda(self.gpu, non_blocking=True)
 
-                # # cat syn & icdar image
+                # cat syn & icdar image
                 images = torch.cat((syn_image, icdar_image), 0)
                 region_image_label = torch.cat((syn_region_label, icdar_region_label), 0)
                 affinity_image_label = torch.cat((syn_affi_label, icdar_affi_label), 0)
@@ -304,11 +272,6 @@ class Trainer(object):
                 end_time = time.time()
                 loss_value += loss.item()
                 batch_time += end_time - start_time
-
-                if train_step > 0 and train_step%10==0 and self.gpu == 0:
-                    # print(f'After training model update GPU {self.gpu} : {craft.module.conv_cls[-1].weight.reshape(2, -1)}')
-                    # wandb.log({"ICDAR2015 Loss": loss.item()})
-                    pass
 
                 if train_step > 0 and train_step%5==0 and self.gpu == 0:
                     mean_loss = loss_value / 5
