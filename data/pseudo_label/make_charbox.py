@@ -6,8 +6,6 @@ import numpy as np
 import cv2
 import torch
 
-from PIL import Image
-from skimage.segmentation import watershed
 from data import imgproc
 from data.pseudo_label.watershed import exec_watershed_by_version
 from utils.decorator_wraps import time_printer
@@ -15,9 +13,9 @@ from utils.decorator_wraps import time_printer
 
 class PseudoCharBoxBuilder:
     def __init__(
-        self, watershed_ver, vis_test_dir, pseudo_vis_opt, gaussian_builder
+        self, watershed_param, vis_test_dir, pseudo_vis_opt, gaussian_builder
     ):
-        self.watershed_ver = watershed_ver
+        self.watershed_param = watershed_param
         self.vis_test_dir = vis_test_dir
         self.pseudo_vis_opt = pseudo_vis_opt
         self.gaussian_builder = gaussian_builder
@@ -37,8 +35,7 @@ class PseudoCharBoxBuilder:
         one_char_ratio = (min(h, w) / (max(h, w) / len(word)))
 
         if word_ratio > 2 or (word_ratio > 1.6 and one_char_ratio > 2.4):
-            # print(word_ratio, one_char_ratio, word)
-            # print('flag1: 세로 WORD')
+            # warping method of vertical word (classified by upper condition)
             horizontal_text_bool = False
             long_side = h
             short_side = w
@@ -57,7 +54,7 @@ class PseudoCharBoxBuilder:
             )
             self.flag = True
         else:
-            # print('flag2: 가로 WORD')
+            # warping method of horizontal word
             horizontal_text_bool = True
             long_side = w
             short_side = h
@@ -82,9 +79,6 @@ class PseudoCharBoxBuilder:
     def inference_word_box(self, net, gpu, word_image):
         if net.training:
             net.eval()
-        # if gpu == 0:
-            # print(f'In supervision model GPU {gpu} : {net.conv_cls[-1].weight.reshape(2, -1)}')
-            # pass
 
         with torch.no_grad():
             word_img_torch = torch.from_numpy(
@@ -197,52 +191,6 @@ class PseudoCharBoxBuilder:
         bboxes = np.array(bboxes, np.float32)
         return bboxes
 
-    def segment_region_score(self, region_score, MI, ratio_hw):
-        region_score = np.float32(region_score) / 255
-        fore = np.uint8(region_score > 0.75)
-        back = np.uint8(region_score < 0.05)
-        unknown = 1 - (fore + back)
-        ret, markers = cv2.connectedComponents(fore)
-        markers += 1
-        markers[unknown == 1] = 0
-
-        labels = watershed(-region_score, markers)
-        # region_score_color = cv2.applyColorMap(np.uint8(region_score * 255), cv2.COLORMAP_JET)
-        # labels_vis = cv2.applyColorMap(np.uint8(markers / (labels.max() / 255)), cv2.COLORMAP_JET)
-        # markers_vis = cv2.applyColorMap(np.uint8(markers / (markers.max() / 255)), cv2.COLORMAP_JET)
-        # cv2.imwrite('/nas/home/gmuffiness/result/region_score_temp.png', region_score_color)
-        # cv2.imwrite('/nas/home/gmuffiness/result/labels_temp.png', labels_vis)
-        # cv2.imwrite('/nas/home/gmuffiness/result/markers_temp.png', markers_vis)
-        char_boxes = []
-        centers = []
-        boxes = []
-        for label in range(2, ret + 1):
-            y, x = np.where(labels == label)
-            x_max = x.max()
-            y_max = y.max()
-            x_min = x.min()
-            y_min = y.min()
-            box = [[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]]
-            # import ipdb; ipdb.set_trace()
-            box = np.array(box)
-            # import ipdb; ipdb.set_trace()
-            # box[:, 0] *= ratio_hw[1]
-            # box[:, 1] *= ratio_hw[0]
-            box *= 2
-            boxes.append(box)
-            # w = x_max - x_min + 1
-            # h = y_max - y_min + 1
-            # centers.append([(x_min + x_max) / 2, (y_min + y_max) / 2])
-            # cords = np.array([[x_min, x_max, x_max, x_min], [y_min, y_min, y_max, y_max]]) / 0.5
-            # cords[0, :] /= ratio_hw[1]
-            # cords[1, :] /= ratio_hw[0]
-            # import ipdb; ipdb.set_trace()
-            # char_box = np.dot(MI, np.concatenate((cords, np.array([[1, 1, 1, 1]])), axis=0))
-            # char_boxes.append((char_box / np.tile(char_box[2, :], (3, 1)))[:2, :])
-        # import ipdb; ipdb.set_trace()
-        # return np.array(char_boxes).transpose((0,2,1)) if char_boxes else []
-        return np.array(boxes, dtype=np.float32)
-
     def cal_angle(self, v1):
         theta = np.arccos(min(1, v1[0] / (np.linalg.norm(v1) + 10e-8)))
         return 2 * math.pi - theta if v1[1] < 0 else theta
@@ -257,7 +205,6 @@ class PseudoCharBoxBuilder:
         return np.array([v1, v2, v3, v4])[index, :]
 
     def build_char_box(self, net, gpu, image, word_bbox, word, img_name=""):
-        # print(img_name, word)
         word_image, M, horizontal_text_bool = self.crop_image_by_bbox(image, word_bbox, img_name, word)
         real_word_without_space = word.replace("\s", "")
         real_char_len = len(real_word_without_space)
@@ -273,12 +220,9 @@ class PseudoCharBoxBuilder:
         region_score_rgb = cv2.resize(region_score, (word_img_w, word_img_h))
         region_score_rgb = cv2.cvtColor(region_score_rgb, cv2.COLOR_GRAY2RGB)
 
-        # pseudo_char_bbox, color_markers = exec_watershed_by_version(
-        #     self.watershed_ver, region_score_rgb, word_image, self.pseudo_vis_opt
-        # )
-
-        M_inv = np.linalg.pinv(M)
-        pseudo_char_bbox = self.segment_region_score(region_score, M_inv, (word_img_h, word_img_w))
+        pseudo_char_bbox = exec_watershed_by_version(
+            self.watershed_param, region_score, word_image, self.pseudo_vis_opt
+        )
 
         # For visualize only
         watershed_box = pseudo_char_bbox.copy()

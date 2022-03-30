@@ -37,7 +37,9 @@ class Trainer(object):
             synth_dataset = SynthTextDataSet(
                 output_size=self.config.train.data.output_size,
                 data_dir=self.config.data_dir.synthtext,
-                saved_gt_dir=self.config.data_dir.synthtext_gt,
+                saved_gt_dir=None,
+                mean=self.config.train.data.mean,
+                variance=self.config.train.data.variance,
                 gauss_init_size=self.config.train.data.gauss_init_size,
                 gauss_sigma=self.config.train.data.gauss_sigma,
                 enlarge_region=self.config.train.data.enlarge_region,
@@ -54,6 +56,8 @@ class Trainer(object):
                 output_size=self.config.train.data.output_size,
                 data_dir=self.config.data_dir.ai_hub,
                 saved_gt_dir=None,
+                mean=self.config.train.data.mean,
+                variance=self.config.train.data.variance,
                 gauss_init_size=self.config.train.data.gauss_init_size,
                 gauss_sigma=self.config.train.data.gauss_sigma,
                 enlarge_region=self.config.train.data.enlarge_region,
@@ -62,6 +66,7 @@ class Trainer(object):
                 vis_test_dir=self.config.vis_test_dir,
                 vis_opt=self.config.train.data.vis_opt,
                 sample=self.config.train.data.syn_sample,
+                do_not_care_label=self.config.train.data.do_not_care_label,
             )
 
             total_trn_dataset.append(ai_hub_dataset)
@@ -117,12 +122,12 @@ class Trainer(object):
             criterion = Maploss_v2()
         elif self.config.train.loss == 3:
             criterion = Maploss_v3()
+        else:
+            raise Exception("Undefined loss")
         return criterion
 
-    # note
     def iou_eval(self, dataset, train_step, save_param_path):
-
-        # dataset = "icdar2013" or  "icdar2015" or "prescription"
+        # Input dataset : "icdar2013" |  "icdar2015" | "prescription"
 
         test_config = DotDict(self.config.test[dataset])
 
@@ -137,16 +142,14 @@ class Trainer(object):
         if self.config.wandb_opt:
             wandb.log(
                 {
-                    "{} Recall".format(dataset): np.round(metrics["recall"], 3),
-                    "{} Precision".format(dataset): np.round(metrics["precision"], 3),
-                    "{} F1-score".format(dataset): np.round(metrics["hmean"], 3),
+                    "{} IoU Recall".format(dataset): np.round(metrics["recall"], 3),
+                    "{} IoU Precision".format(dataset): np.round(metrics["precision"], 3),
+                    "{} IoU F1-score".format(dataset): np.round(metrics["hmean"], 3),
                 }
             )
 
-    # note
     def cleval(self, dataset, train_step, save_param_path):
-
-        # dataset = "icdar2013" or  "icdar2015" or "prescription"
+        # Input dataset : "icdar2013" |  "icdar2015" | "prescription"
 
         test_config = DotDict(self.config.test[dataset])
 
@@ -161,12 +164,11 @@ class Trainer(object):
         if self.config.wandb_opt:
             wandb.log(
                 {
-                    "{} Recall".format(dataset): np.round(metrics["recall"], 3),
-                    "{} Precision".format(dataset): np.round(metrics["precision"], 3),
-                    "{} F1-score".format(dataset): np.round(metrics["hmean"], 3),
+                    "{} CLeval Recall".format(dataset): np.round(metrics["recall"], 3),
+                    "{} CLeval Precision".format(dataset): np.round(metrics["precision"], 3),
+                    "{} CLeval F1-score".format(dataset): np.round(metrics["hmean"], 3),
                 }
             )
-
 
     def train(self):
 
@@ -178,10 +180,10 @@ class Trainer(object):
         # MODEL -------------------------------------------------------------------------------------------------------#
         if self.config.train.backbone == "vgg":
             craft = CRAFT(pretrained=True, amp=self.config.train.amp)
-        if self.config.train.backbone == "resnet":
+        elif self.config.train.backbone == "resnet":
             craft = UNetWithResnet50Encoder(pretrained=True, amp=self.config.train.amp)
         else:
-            raise Exception('Undefined architecture')
+            raise Exception('Undefined `architec`ture')
 
         # load model
         if self.config.train.ckpt_path is not None:

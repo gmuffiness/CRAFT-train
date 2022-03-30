@@ -1,7 +1,6 @@
 import os
 import re
 import itertools
-import copy
 import random
 import json
 
@@ -42,6 +41,8 @@ def hierarchical_dataset(root, config, select_data="/"):
                 output_size=config.train.data.output_size,
                 data_dir=lmdb_path,
                 saved_gt_dir=None,
+                mean=config.train.data.mean,
+                variance=config.train.data.variance,
                 gauss_init_size=config.train.data.gauss_init_size,
                 gauss_sigma=config.train.data.gauss_sigma,
                 enlarge_region=config.train.data.enlarge_region,
@@ -66,6 +67,8 @@ class CraftBaseDataset(Dataset):
         output_size,
         data_dir,
         saved_gt_dir,
+        mean,
+        variance,
         gauss_init_size,
         gauss_sigma,
         enlarge_region,
@@ -78,6 +81,7 @@ class CraftBaseDataset(Dataset):
         self.output_size = output_size
         self.data_dir = data_dir
         self.saved_gt_dir = saved_gt_dir
+        self.mean, self.variance = mean, variance
         self.gaussian_builder = GaussianBuilder(
             gauss_init_size, gauss_sigma, enlarge_region, enlarge_affinity
         )
@@ -220,7 +224,7 @@ class CraftBaseDataset(Dataset):
         )
 
         image = imgproc.normalizeMeanVariance(
-            np.array(image), mean=(0.485, 0.456, 0.406), variance=(0.229, 0.224, 0.225)
+            np.array(image), mean=self.mean, variance=self.variance
         )
         image = image.transpose(2, 0, 1)
 
@@ -233,6 +237,8 @@ class SynthTextDataSet(CraftBaseDataset):
         output_size,
         data_dir,
         saved_gt_dir,
+        mean,
+        variance,
         gauss_init_size,
         gauss_sigma,
         enlarge_region,
@@ -246,6 +252,8 @@ class SynthTextDataSet(CraftBaseDataset):
             output_size,
             data_dir,
             saved_gt_dir,
+            mean,
+            variance,
             gauss_init_size,
             gauss_sigma,
             enlarge_region,
@@ -344,6 +352,8 @@ class SynthTextDataSet_KR(CraftBaseDataset):
         output_size,
         data_dir,
         saved_gt_dir,
+        mean,
+        variance,
         gauss_init_size,
         gauss_sigma,
         enlarge_region,
@@ -357,6 +367,8 @@ class SynthTextDataSet_KR(CraftBaseDataset):
             output_size,
             data_dir,
             saved_gt_dir,
+            mean,
+            variance,
             gauss_init_size,
             gauss_sigma,
             enlarge_region,
@@ -462,6 +474,8 @@ class AiHubDataset(CraftBaseDataset):
         output_size,
         data_dir,
         saved_gt_dir,
+        mean,
+        variance,
         gauss_init_size,
         gauss_sigma,
         enlarge_region,
@@ -470,11 +484,14 @@ class AiHubDataset(CraftBaseDataset):
         vis_test_dir,
         vis_opt,
         sample,
+        do_not_care_label,
     ):
         super().__init__(
             output_size,
             data_dir,
             saved_gt_dir,
+            mean,
+            variance,
             gauss_init_size,
             gauss_sigma,
             enlarge_region,
@@ -484,6 +501,7 @@ class AiHubDataset(CraftBaseDataset):
             vis_opt,
             sample,
         )
+        self.do_not_care_label = do_not_care_label
         self.img_dir = os.path.join(data_dir, "all_image")
         self.img_gt_box_json_path = os.path.join(
             data_dir, "last_new_a100.json"
@@ -534,7 +552,7 @@ class AiHubDataset(CraftBaseDataset):
         vertical_word = []
 
         for j in range(len(self.img_gt_box[index][0]["annotation"])):
-            if self.img_gt_box[index][0]["annotation"][j]["text"] != "###":
+            if self.img_gt_box[index][0]["annotation"][j]["text"] not in self.do_not_care_label:
                 words.append(self.img_gt_box[index][0]["annotation"][j]["text"])
                 vertical_word.append(
                     self.img_gt_box[index][0]["annotation"][j]["vertical"]
@@ -576,17 +594,8 @@ class AiHubDataset(CraftBaseDataset):
             vertical_word,
         ) = self.load_img_gt_box(index)
 
-        if len(word_level_char_bbox) == 0 and len(do_not_care_bboxes) == 0:
-            import ipdb
-
-            ipdb.set_trace()
-            print(img_id)
-            return image, word_level_char_bbox, do_care_words, confidence_mask
-
         for i in range(len(do_not_care_bboxes)):
-            if do_not_care_words[i] == "###" or len(do_not_care_words[i].strip()) == 0:
-                cv2.fillPoly(confidence_mask, [np.int32(do_not_care_bboxes[i])], 0)
-                continue
+            cv2.fillPoly(confidence_mask, [np.int32(do_not_care_bboxes[i])], 0)
 
         if len(word_level_char_bbox) == 0:
             region_score = np.zeros((img_h, img_w), dtype=np.float32)
@@ -627,6 +636,8 @@ class ICDAR2015(CraftBaseDataset):
         output_size,
         data_dir,
         saved_gt_dir,
+        mean,
+        variance,
         gauss_init_size,
         gauss_sigma,
         enlarge_region,
@@ -635,13 +646,16 @@ class ICDAR2015(CraftBaseDataset):
         vis_test_dir,
         vis_opt,
         sample,
-        watershed_ver,
+        watershed_param,
         pseudo_vis_opt,
+        do_not_care_label,
     ):
         super().__init__(
             output_size,
             data_dir,
             saved_gt_dir,
+            mean,
+            variance,
             gauss_init_size,
             gauss_sigma,
             enlarge_region,
@@ -652,8 +666,9 @@ class ICDAR2015(CraftBaseDataset):
             sample,
         )
         self.pseudo_vis_opt = pseudo_vis_opt
+        self.do_not_care_label = do_not_care_label
         self.pseudo_charbox_builder = PseudoCharBoxBuilder(
-            watershed_ver, vis_test_dir, pseudo_vis_opt, self.gaussian_builder
+            watershed_param, vis_test_dir, pseudo_vis_opt, self.gaussian_builder
         )
         # self.vis_index = [189, 41, 723, 251, 232, 115, 634, 951, 247, 25, 400, 704, 619, 305, 423, 20, 31, 61, 73]
         # self.vis_index = [61, 73, 77, 88, 94, 126,131,136,163,208,245,274,283,297,337,354,356,359,371,372,378,410,435,443,450]
@@ -680,8 +695,8 @@ class ICDAR2015(CraftBaseDataset):
             box_points = np.array(box_points, np.float32).reshape(4, 2)
             word = box_info[8:]
             word = ",".join(word)
-            if word == "###":
-                words.append("###")
+            if word in self.do_not_care_label:
+                words.append(self.do_not_care_label[0])
                 word_bboxes.append(box_points)
                 continue
             word_bboxes.append(box_points)
@@ -718,7 +733,7 @@ class ICDAR2015(CraftBaseDataset):
         for i in range(len(word_bboxes)):
             # _word_bboxes[i] = enlargebox(_word_bboxes[i], image.shape[0], image.shape[1], [0.5, 0.5])
             # TODO: fill confidence mask 할 때, 더 낮은 값이 들어가도록 수정?
-            if words[i] == "###" or len(words[i].strip()) == 0:
+            if words[i] in self.do_not_care_label:
                 cv2.fillPoly(confidence_mask, [np.int32(_word_bboxes[i])], 0)
                 continue
 

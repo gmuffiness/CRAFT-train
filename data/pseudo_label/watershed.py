@@ -1,17 +1,54 @@
-import time
 import random
-
-import torch
-import torch.backends.cudnn as cudnn
-from torch.autograd import Variable
 
 import cv2
 import numpy as np
-from data import imgproc
-import Polygon as plg
+from skimage.segmentation import watershed
 
-from collections import OrderedDict
-from data.boxEnlarge import enlargebox
+def segment_region_score(self, region_score, MI, ratio_hw):
+    region_score = np.float32(region_score) / 255
+    fore = np.uint8(region_score > 0.75)
+    back = np.uint8(region_score < 0.05)
+    unknown = 1 - (fore + back)
+    ret, markers = cv2.connectedComponents(fore)
+    markers += 1
+    markers[unknown == 1] = 0
+
+    labels = watershed(-region_score, markers)
+    # region_score_color = cv2.applyColorMap(np.uint8(region_score * 255), cv2.COLORMAP_JET)
+    # labels_vis = cv2.applyColorMap(np.uint8(markers / (labels.max() / 255)), cv2.COLORMAP_JET)
+    # markers_vis = cv2.applyColorMap(np.uint8(markers / (markers.max() / 255)), cv2.COLORMAP_JET)
+    # cv2.imwrite('/nas/home/gmuffiness/result/region_score_temp.png', region_score_color)
+    # cv2.imwrite('/nas/home/gmuffiness/result/labels_temp.png', labels_vis)
+    # cv2.imwrite('/nas/home/gmuffiness/result/markers_temp.png', markers_vis)
+    char_boxes = []
+    centers = []
+    boxes = []
+    for label in range(2, ret + 1):
+        y, x = np.where(labels == label)
+        x_max = x.max()
+        y_max = y.max()
+        x_min = x.min()
+        y_min = y.min()
+        box = [[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]]
+        # import ipdb; ipdb.set_trace()
+        box = np.array(box)
+        # import ipdb; ipdb.set_trace()
+        # box[:, 0] *= ratio_hw[1]
+        # box[:, 1] *= ratio_hw[0]
+        box *= 2
+        boxes.append(box)
+        # w = x_max - x_min + 1
+        # h = y_max - y_min + 1
+        # centers.append([(x_min + x_max) / 2, (y_min + y_max) / 2])
+        # cords = np.array([[x_min, x_max, x_max, x_min], [y_min, y_min, y_max, y_max]]) / 0.5
+        # cords[0, :] /= ratio_hw[1]
+        # cords[1, :] /= ratio_hw[0]
+        # import ipdb; ipdb.set_trace()
+        # char_box = np.dot(MI, np.concatenate((cords, np.array([[1, 1, 1, 1]])), axis=0))
+        # char_boxes.append((char_box / np.tile(char_box[2, :], (3, 1)))[:2, :])
+    # import ipdb; ipdb.set_trace()
+    # return np.array(char_boxes).transpose((0,2,1)) if char_boxes else []
+    return np.array(boxes, dtype=np.float32)
 
 def watershed_v2(region_score, input_img, pseudo_vis_opt):
 
@@ -132,7 +169,7 @@ def watershed_v2(region_score, input_img, pseudo_vis_opt):
         cv2.imwrite('./results_dir/exp_v2.1/watershed/{}'.format(f'watershed_result_{random.random()}.png'), vis_result)
 
     # import ipdb; ipdb.set_trace()
-    return np.array(boxes), color_markers
+    return np.array(boxes)
 
 def watershed_v3(region_score, input_img, pseudo_vis_opt):
 
@@ -252,19 +289,20 @@ def watershed_v3(region_score, input_img, pseudo_vis_opt):
              color_markers, region_score, input_img])
         cv2.imwrite('./results_dir/exp_v2.1/watershed/{}'.format(f'watershed_result_{random.random()}.png'), vis_result)
 
-    return np.array(boxes, dtype=np.float32), color_markers
+    return np.array(boxes, dtype=np.float32)
 
-def exec_watershed_by_version(watershed_ver, bgr_region_scores, input, pseudo_vis_opt):
+def exec_watershed_by_version(watershed_param, region_score, word_image, pseudo_vis_opt):
 
     # TODO: 새로운 watershed version을 추가할 때마다, 아래 dict에 추가해줘야 함.
     # => 더 깔끔하게 할 수 없을까?
     func_name_map_dict = {
         2: watershed_v2,
         3: watershed_v3,
+        "skimage": segment_region_score,
         # '4': watershed_v4,
     }
 
     try:
-        return func_name_map_dict[watershed_ver](bgr_region_scores, input, pseudo_vis_opt)
+        return func_name_map_dict[watershed_param.version](watershed_param, region_score, word_image, pseudo_vis_opt)
     except:
-        print(f'Watershed version {watershed_ver} does not exist in func_name_map_dict.')
+        print(f'Watershed version {watershed_param.version} does not exist in func_name_map_dict.')

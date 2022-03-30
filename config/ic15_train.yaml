@@ -13,7 +13,8 @@ data_dir:
 
 train:
   ckpt_path: "/nas/home/jihyokim/jm/CRAFT-Refactoring/config/shwang_test26_CRAFT_clr_amp_60000.pth"
-  batch_size: 20
+  eval_interval: 500
+  batch_size: 10
   st_iter: 0
   end_iter: 50000
   lr: 0.0001
@@ -29,11 +30,19 @@ train:
     vis_opt: False
     pseudo_vis_opt: False
     output_size: 768
+    do_not_care_label: ['###', '']
+    mean: [0.485, 0.456, 0.406]
+    variance: [0.229, 0.224, 0.225]
     enlarge_region : [0.5, 0.5] # x axis, y axis
     enlarge_affinity: [0., 0.5]
     gauss_init_size: 200
     gauss_sigma: 40
-    watershed_version: "skimage"
+    watershed:
+      version: "skimage"
+      sure_fg_th: 0.75
+      sure_bg_th: 0.05
+    syn_sample: -1
+    icdar_sample: -1
     syn_aug:
       random_scale:
         range: [1.0, 1.5, 2.0]
@@ -42,7 +51,7 @@ train:
         max_angle: 20
         option: False
       random_crop:
-        version: "random_resize_crop"
+        version: "random_resize_crop_synth"
         scale: [0.333, 1.0]
         ratio: [0.75, 1.333]
         option: True
