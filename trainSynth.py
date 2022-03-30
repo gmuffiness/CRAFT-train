@@ -137,11 +137,13 @@ class Trainer(object):
             self.config.results_dir, "{}/{}".format(dataset+"_iou", str(train_step))
         )
 
+        if self.gpu == 0 and not os.path.exists(val_result_dir):
+            os.makedirs(val_result_dir)
         evaluator = DetectionIoUEvaluator()
         metrics = main_eval(
             save_param_path, self.config.train.backbone, test_config, evaluator, val_result_dir, buffer
         )
-        if self.config.wandb_opt:
+        if self.gpu == 0 and self.config.wandb_opt:
             wandb.log(
                 {
                     "{} IoU Recall".format(dataset): np.round(metrics["recall"], 3),
@@ -158,12 +160,14 @@ class Trainer(object):
         val_result_dir = os.path.join(
             self.config.results_dir, "{}/{}".format(dataset+"_cl", str(train_step))
         )
+        if self.gpu == 0 and not os.path.exists(val_result_dir):
+            os.makedirs(val_result_dir)
 
         metrics = main_cleval(
             save_param_path, self.config.train.backbone, test_config, val_result_dir
         )
 
-        if self.config.wandb_opt:
+        if self.gpu == 0 and self.config.wandb_opt:
             wandb.log(
                 {
                     "{} CLeval Recall".format(dataset): np.round(metrics["recall"], 3),
@@ -309,7 +313,7 @@ class Trainer(object):
                           "training_loss: {:.5f}, avg_batch_time: {:.5f}"
                           .format(time.strftime('%Y-%m-%d:%H:%M:%S',time.localtime(time.time())),
                                   train_step, whole_training_step, training_lr, mean_loss, avg_batch_time))
-                    if self.config.wandb_opt:
+                    if self.gpu == 0 and self.config.wandb_opt:
                         wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
                 if train_step % self.config.train.eval_interval == 0 and train_step != 0:
@@ -345,9 +349,9 @@ class Trainer(object):
                     torch.save(save_param_dic, save_param_path)
 
                     # validation
-                    self.iou_eval("icdar2013", train_step, save_param_path, buffer_dict["icdar2013"])
+                    # self.iou_eval("icdar2013", train_step, save_param_path, buffer_dict["icdar2013"])
                     self.cleval("icdar2013", train_step, save_param_path)
-                    self.cleval("prescription", train_step, save_param_path)
+                    # self.cleval("prescription", train_step, save_param_path)
                     # self.iou_eval("prescription", train_step, save_param_path, buffer_dict["prescription"])
                     # self.cleval("icdar2015", train_step, save_param_path)
 
@@ -398,15 +402,10 @@ def main():
 
     args = parser.parse_args()
 
-
+    exp_name = args.yaml
     # load configure
     config = load_yaml(args.yaml)
 
-    if config["wandb_opt"]:
-        # Apply config to wandb
-        # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
-        wandb.init(project="craft-stage1", entity="gmuffiness", name=args.yaml)
-        wandb.config.update(config)
     print("-"*20+" Options "+"-"*20)
     print(yaml.dump(config))
     print("-" * 40)
@@ -424,6 +423,7 @@ def main():
 
 
     ngpus_per_node = torch.cuda.device_count()
+    print(f'Total device num : {ngpus_per_node}')
     world_size = ngpus_per_node
 
     manager = mp.Manager()
@@ -431,10 +431,10 @@ def main():
     buffer2 = manager.list([None] * config["test"]["icdar2015"]["test_set_size"])
     buffer3 = manager.list([None] * config["test"]["prescription"]["test_set_size"])
     buffer_dict = {"icdar2013":buffer1, "icdar2015":buffer2, "prescription":buffer3}
-    torch.multiprocessing.spawn(main_worker, nprocs=ngpus_per_node, args=(args.port, ngpus_per_node, config, buffer_dict, ))
+    torch.multiprocessing.spawn(main_worker, nprocs=ngpus_per_node, args=(args.port, ngpus_per_node, config, buffer_dict, exp_name, ))
 
 
-def main_worker(gpu, port, ngpus_per_node, config, buffer_dict):
+def main_worker(gpu, port, ngpus_per_node, config, buffer_dict, exp_name):
 
     torch.distributed.init_process_group(
         backend='nccl',
@@ -445,6 +445,12 @@ def main_worker(gpu, port, ngpus_per_node, config, buffer_dict):
     batch_size = int(config["train"]["batch_size"] / ngpus_per_node)
     config["train"]["batch_size"] = batch_size
     config = DotDict(config)
+
+    if gpu == 0 and config.wandb_opt:
+        # Apply config to wandb
+        # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
+        wandb.init(project="craft-stage1", entity="gmuffiness", name=exp_name)
+        wandb.config.update(config)
 
     # Start train
     trainer = Trainer(config, gpu)

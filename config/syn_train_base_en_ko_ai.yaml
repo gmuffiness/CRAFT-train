@@ -1,7 +1,7 @@
 results_dir: "./exp/"
 #vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
 vis_test_dir: "/nas/home/gmuffiness/result/debug_ai_hub_dataset_class"
-wandb_opt: False
+wandb_opt: True
 
 data_dir:
   synthtext: "/data/SynthText/"
@@ -14,8 +14,8 @@ train:
   backbone : resnet
   dataset: ["synthtext", "synthtext_kor", "ai_hub"] # option : [synthtext, synthtext_kor, ai_hub]
   ckpt_path: null
-  eval_interval: 500
-  batch_size: 40
+  eval_interval: 1000
+  batch_size: 24
   st_iter: 0
   end_iter: 60000
   lr: 0.0001
@@ -88,8 +88,8 @@ train:
         max_angle: 20
         option: True
       random_crop:
-        version: "random_resize_crop"
-        scale: [ 0.2, 0.8 ]
+        version: "random_resize_crop_synth"
+        scale: [ 0.333, 1.0 ]
         ratio: [ 0.75, 1.333 ]
         rnd_threshold: 1.0
         option: True

@@ -340,8 +340,6 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer):
     gpu_count = torch.cuda.device_count()
     torch.cuda.set_device(gpu_idx)
 
-    if not os.path.exists(result_dir):
-        os.makedirs(result_dir)
     test_set = config.test_data_dir.split("/")[-2].lower()
 
     # load model
@@ -450,14 +448,12 @@ def main_cleval(model_path, backbone, config, result_dir):
     # evaluator : test function
 
     # print(len(total_imgs_bboxes_gt)) # 500
-    # print('Current cuda device:', torch.cuda.current_device())
-    # print('Total gpu :', torch.cuda.device_count())
+    print('Current cuda device:', torch.cuda.current_device())
+    print('Total gpu :', torch.cuda.device_count())
     gpu_idx = torch.cuda.current_device()
     gpu_count = torch.cuda.device_count()
     torch.cuda.set_device(gpu_idx)
 
-    if not os.path.exists(result_dir):
-        os.makedirs(result_dir)
     test_set = config.test_data_dir.split("/")[-2].lower()
 
     # load model
@@ -469,7 +465,7 @@ def main_cleval(model_path, backbone, config, result_dir):
         raise Exception('Undefined architecture')
 
     print("Loading weights from checkpoint (" + model_path + ")")
-    net_param = torch.load(model_path)
+    net_param = torch.load(model_path, map_location=f'cuda:{gpu_idx}')
     try:
         model.load_state_dict(copyStateDict(net_param["craft"]))
     except :
