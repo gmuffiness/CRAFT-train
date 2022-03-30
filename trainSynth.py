@@ -18,9 +18,9 @@ import wandb
 import yaml
 
 from config.load_config import load_yaml, DotDict
-from data.dataset import SynthTextDataSet
-from data.dataset_kr import SynthTextDataSet_kr, hierarchical_dataset
-from data.dataset_ai_hub import AiHubDataset
+from data.dataset import SynthTextDataSet, SynthTextDataSet_KR, hierarchical_dataset, AiHubDataset
+# from data.dataset_kr import SynthTextDataSet_kr, hierarchical_dataset
+# from data.dataset_ai_hub import AiHubDataset
 from eval_v2 import main_eval, main_cleval
 from loss.mseloss import Maploss, Maploss_v2, Maploss_v3
 from model.craft import CRAFT
@@ -58,17 +58,19 @@ class Trainer(object):
             total_trn_dataset.append(synth_dataset)
 
         if "ai_hub" in self.config.train.dataset:
-            # ai-hub
             ai_hub_dataset = AiHubDataset(
                 output_size=self.config.train.data.output_size,
                 data_dir=self.config.data_dir.ai_hub,
-                gt_path=self.config.data_dir.ai_hub_gt,
+                saved_gt_dir=None,
                 gauss_init_size=self.config.train.data.gauss_init_size,
                 gauss_sigma=self.config.train.data.gauss_sigma,
                 enlarge_region=self.config.train.data.enlarge_region,
                 enlarge_affinity=self.config.train.data.enlarge_affinity,
-                aug=self.config.train.data.ai_aug,
-                vis_opt=self.config.train.data.vis_opt)
+                aug=self.config.train.data.syn_aug,
+                vis_test_dir=self.config.vis_test_dir,
+                vis_opt=self.config.train.data.vis_opt,
+                sample=self.config.train.data.syn_sample,
+            )
 
             total_trn_dataset.append(ai_hub_dataset)
 
@@ -80,6 +82,8 @@ class Trainer(object):
         total_trn_dataset = ConcatDataset(total_trn_dataset)
 
         trn_sampler = torch.utils.data.distributed.DistributedSampler(total_trn_dataset)
+
+        # mp_context = torch.multiprocessing.get_context('fork')
         trn_loader = torch.utils.data.DataLoader(
             total_trn_dataset,
             batch_size=self.config.train.batch_size,
@@ -88,6 +92,7 @@ class Trainer(object):
             sampler=trn_sampler,
             drop_last=True,
             pin_memory=True,
+            # multiprocessing_context=mp_context,
         )
 
         return trn_loader, trn_sampler
@@ -175,25 +180,28 @@ class Trainer(object):
 
     def train(self):
 
+        torch.cuda.set_device(self.gpu)
 
+        # DATASET -----------------------------------------------------------------------------------------------------#
         trn_loader = self.trn_loader
-        # -------------------------------------------------------------------------------------------------------#
 
+        # MODEL -------------------------------------------------------------------------------------------------------#
         if self.config.train.backbone == "vgg":
             craft = CRAFT(pretrained=True, amp=self.config.train.amp)
         if self.config.train.backbone == "resnet":
             craft = UNetWithResnet50Encoder(pretrained=True, amp=self.config.train.amp)
+        else:
+            raise Exception('Undefined architecture')
 
         # load model
         if self.config.train.ckpt_path is not None:
             craft.load_state_dict(copyStateDict(self.net_param["craft"]))
         craft = nn.SyncBatchNorm.convert_sync_batchnorm(craft)
-        torch.cuda.set_device(self.gpu)
-        craft = craft.cuda(self.gpu)
+        craft = craft.cuda()
         craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[self.gpu])
 
         torch.backends.cudnn.benchmark = True
-        # ----------------------------------------------------------------------------------------------------------#
+        # OPTIMIZER----------------------------------------------------------------------------------------------------#
 
         optimizer = optim.Adam(
             craft.parameters(),
@@ -202,27 +210,25 @@ class Trainer(object):
         )
 
         # load optim
-        if self.config.train.ckpt_path is not None:
+        if self.config.train.ckpt_path is not None and self.config.train.st_iter != 0:
             optimizer.load_state_dict(copyStateDict(self.net_param["optimizer"]))
             self.config.train.st_iter = self.net_param["optimizer"]["state"][0]["step"]
             self.config.train.lr = self.net_param["optimizer"]["param_groups"][0]["lr"]
 
-
-        # ---------------------------------------------------------------------------------------------------------#
-
+        # LOSS --------------------------------------------------------------------------------------------------------#
         # mixed precision
         if self.config.train.amp:
             scaler = torch.cuda.amp.GradScaler()
 
             # load model
-            if self.config.train.ckpt_path is not None:
+            if self.config.train.ckpt_path is not None and self.config.train.st_iter != 0:
                 scaler.load_state_dict(copyStateDict(self.net_param["scaler"]))
+        else:
+            scaler = None
 
-        # loss
         criterion = self.get_loss()
 
-        # ------------------------------------------------------------------------------------------------------#
-
+        # TRAIN -------------------------------------------------------------------------------------------------------#
         train_step = self.config.train.st_iter
         whole_training_step = self.config.train.end_iter
         update_lr_rate_step = 0
@@ -231,6 +237,7 @@ class Trainer(object):
         batch_time = 0
         epoch = 0
         start_time = time.time()
+
         while train_step < whole_training_step:
             self.trn_sampler.set_epoch(train_step)
             for index, (
@@ -249,10 +256,11 @@ class Trainer(object):
                         self.config.train.lr,
                     )
 
-                images = Variable(image).cuda()
-                region_image_label = Variable(region_image).cuda()
-                affinity_image_label = Variable(affinity_image).cuda()
-                confidence_mask_label = Variable(confidence_mask).cuda()
+                # load data to each GPU async
+                images = image.cuda(non_blocking=True)
+                region_image_label = region_image.cuda(non_blocking=True)
+                affinity_image_label = affinity_image.cuda(non_blocking=True)
+                confidence_mask_label = confidence_mask.cuda(non_blocking=True)
 
                 if self.config.train.amp:
                     with torch.cuda.amp.autocast():
@@ -297,11 +305,6 @@ class Trainer(object):
                 loss_value += loss.item()
                 batch_time += end_time - start_time
 
-
-                if self.gpu == 0:
-                    #wandb.log({"SynthText Loss": loss.item()})
-                    pass
-
                 if train_step > 0 and train_step%5==0 and self.gpu == 0:
                     mean_loss = loss_value / 5
                     loss_value = 0
@@ -315,9 +318,7 @@ class Trainer(object):
                     if self.config.wandb_opt:
                         wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
-
                 if train_step % 500 == 0 and train_step != 0 and self.gpu == 0:
-
                     print("Saving state, index:", train_step)
                     save_param_dic = {
                         "iter": train_step,
@@ -348,10 +349,6 @@ class Trainer(object):
                     self.cleval("prescription", train_step, save_param_path)
                     self.cleval("icdar2013", train_step, save_param_path)
                     self.cleval("icdar2015", train_step, save_param_path)
-
-
-
-
                 train_step += 1
                 if train_step >= whole_training_step:
                     break
@@ -416,8 +413,6 @@ def main_worker(gpu, ngpus_per_node):
         world_size=ngpus_per_node,
         rank=gpu)
 
-
-
     # load configure
     config = load_yaml(args.yaml)
 
@@ -440,7 +435,6 @@ def main_worker(gpu, ngpus_per_node):
         shutil.copy(
             "config/" + args.yaml + ".yaml", os.path.join(res_dir, args.yaml) + ".yaml"
         )
-
 
     batch_size = int(config["train"]["batch_size"] / ngpus_per_node)
     config["train"]["batch_size"] = batch_size

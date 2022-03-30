@@ -1,27 +1,27 @@
 results_dir: "./exp/"
-vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
+#vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
+vis_test_dir: "/nas/home/gmuffiness/result/debug_ai_hub_dataset_class"
 wandb_opt: False
 
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
   synthtext_kor : "/data/SynthText-KR"
-  ai_hub : "/data/ai-hub-data/textinthewild_data/all_image"
-  ai_hub_gt : "/data/ai-hub-data/textinthewild_data/last_new_a100.json"
+  ai_hub : "/data/ai-hub-data/textinthewild_data"
   prescription: "/data/prescription/"
 
 train:
   backbone : vgg
   dataset: ["synthtext", "synthtext_kor", "ai_hub"] # option : [synthtext, synthtext_kor, ai_hub]
   ckpt_path: null
-  batch_size: 36
+  batch_size: 16
   st_iter: 0
   end_iter: 60000
   lr: 0.0001
   lr_decay: 15000
   gamma: 0.2
   weight_decay: 0.00001
-  num_workers: 4
+  num_workers: 2
   amp: True
   loss: 2
   neg_rto: 0.3
