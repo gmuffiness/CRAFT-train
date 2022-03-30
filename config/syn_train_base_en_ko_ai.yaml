@@ -11,11 +11,11 @@ data_dir:
   prescription: "/data/prescription/"
 
 train:
-  backbone : vgg
+  backbone : resnet
   dataset: ["synthtext", "synthtext_kor", "ai_hub"] # option : [synthtext, synthtext_kor, ai_hub]
   ckpt_path: null
   eval_interval: 500
-  batch_size: 16
+  batch_size: 40
   st_iter: 0
   end_iter: 60000
   lr: 0.0001
@@ -106,6 +106,7 @@ train:
 test:
   trained_model: null
   icdar2013:
+    test_set_size: 233
     cuda: True
     vis_opt: True
     test_data_dir : "/data/ICDAR2013/"
@@ -116,6 +117,7 @@ test:
     mag_ratio: 1.5
     poly: False
   icdar2015:
+    test_set_size: 500
     cuda: True
     vis_opt: True
     test_data_dir: "/data/ICDAR2015/"
@@ -126,6 +128,7 @@ test:
     mag_ratio: 1.75
     poly: False
   prescription:
+    test_set_size: 87
     cuda: True
     vis_opt: True
     test_data_dir: "/data/prescription/"

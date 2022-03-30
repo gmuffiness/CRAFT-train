@@ -56,6 +56,7 @@ def result_to_clEval(bounds):
         result = result + output + '\n'
 
     return result
+
 # NOTE
 def make_txt(result_str, save_folder, filename, dtype):
     # str문자열 받아서, 문자열을 txt형식 파일으로 만들어서 PATH에 저장하는 함수.
@@ -320,7 +321,7 @@ def load_gt_cl_dir(config, data):
     return gt_cl_dir
 
 
-def main_eval(model_path, backbone, config, evaluator, result_dir, viz=True):
+def main_eval(model_path, backbone, config, evaluator, result_dir, buffer):
 
     # test 폴더에 대한 학습된 모델의 f1-score를 계산
     # test 폴더에 대한 model의 output 시각화
@@ -330,6 +331,15 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, viz=True):
     # config : test에 필요한 configuration, dict type
     # evaluator : test function
 
+    # check buffer for distributed evaluation
+    assert all(v is None for v in buffer), 'Buffer already filled with another value'
+    # print(len(total_imgs_bboxes_gt)) # 500
+    # print('Current cuda device:', torch.cuda.current_device())
+    # print('Total gpu :', torch.cuda.device_count())
+    gpu_idx = torch.cuda.current_device()
+    gpu_count = torch.cuda.device_count()
+    torch.cuda.set_device(gpu_idx)
+
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
     test_set = config.test_data_dir.split("/")[-2].lower()
@@ -337,30 +347,35 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, viz=True):
     # load model
     if backbone == "vgg":
         model = CRAFT()  # initialize
-    if backbone == "resnet":
+    elif backbone == "resnet":
         model = UNetWithResnet50Encoder()
+    else:
+        raise Exception('Undefined architecture')
+
     print("Loading weights from checkpoint (" + model_path + ")")
     net_param = torch.load(model_path)
     model.load_state_dict(copyStateDict(net_param["craft"]))
 
     if config.cuda:
         model = model.cuda()
-        model = torch.nn.DataParallel(model)
+        # model = torch.nn.DataParallel(model)
         cudnn.benchmark = False
 
     model.eval()
     # ------------------------------------------------------------------------------------------------------------------#
 
     total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_iou(test_set, config)
+    slice_idx = len(total_imgs_bboxes_gt) // gpu_count
+
+    # last gpu
+    if gpu_idx == gpu_count - 1:
+        piece_imgs_path = total_imgs_path[gpu_idx * slice_idx:]
+    else:
+        piece_imgs_path = total_imgs_path[gpu_idx * slice_idx: (gpu_idx + 1) * slice_idx]
 
     # -----------------------------------------------------------------------------------------------------------------#
-    canvas_size = config.canvas_size
-    # print(canvas_size)
-    total_img_bboxes_pre = []
-    for k, img_path in enumerate(tqdm(total_imgs_path)):
-
-        # if img_path.split('/')[-1] == 'img_39.jpg':
-
+    # total_img_bboxes_pre = []
+    for k, img_path in enumerate(piece_imgs_path):
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         single_img_bbox = []
@@ -372,20 +387,17 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, viz=True):
             config.low_text,
             config.cuda,
             config.poly,
-            canvas_size,
+            config.canvas_size,
             config.mag_ratio,
         )
 
         # -------------------------------------------------------------------------------------------------------------#
 
         for box in bboxes:
-            box_info = {"points": None, "text": None, "ignore": None}
-            box_info["points"] = box
-            box_info["text"] = "###"
-            box_info["ignore"] = False
+            box_info = {"points": box, "text": "###", "ignore": False}
             single_img_bbox.append(box_info)
-        total_img_bboxes_pre.append(single_img_bbox)
-
+        # total_img_bboxes_pre.append(single_img_bbox)
+        buffer[gpu_idx * slice_idx + k] = single_img_bbox
         # -------------------------------------------------------------------------------------------------------------#
 
         if config.vis_opt:
@@ -400,6 +412,11 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, viz=True):
             )
 
     # ------------------------------------------------------------------------------------------------------------------#
+    # wait until buffer is full filled
+    while None in buffer:
+        continue
+    assert all(v is not None for v in buffer), 'Buffer not filled'
+    total_img_bboxes_pre = buffer
 
     # print('Predict bbox points completed.')
     results = []
@@ -422,7 +439,7 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, viz=True):
 
 
 # NOTE
-def main_cleval(model_path, backbone, config, result_dir, viz=True):
+def main_cleval(model_path, backbone, config, result_dir):
 
     # test 폴더에 대한 학습된 모델의 f1-score를 계산
     # test 폴더에 대한 model의 output 시각화
@@ -432,6 +449,13 @@ def main_cleval(model_path, backbone, config, result_dir, viz=True):
     # config : test에 필요한 configuration, dict type
     # evaluator : test function
 
+    # print(len(total_imgs_bboxes_gt)) # 500
+    # print('Current cuda device:', torch.cuda.current_device())
+    # print('Total gpu :', torch.cuda.device_count())
+    gpu_idx = torch.cuda.current_device()
+    gpu_count = torch.cuda.device_count()
+    torch.cuda.set_device(gpu_idx)
+
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
     test_set = config.test_data_dir.split("/")[-2].lower()
@@ -439,9 +463,10 @@ def main_cleval(model_path, backbone, config, result_dir, viz=True):
     # load model
     if backbone == "vgg":
         model = CRAFT()  # initialize
-    if backbone == "resnet":
+    elif backbone == "resnet":
         model = UNetWithResnet50Encoder()
-
+    else:
+        raise Exception('Undefined architecture')
 
     print("Loading weights from checkpoint (" + model_path + ")")
     net_param = torch.load(model_path)
@@ -450,29 +475,30 @@ def main_cleval(model_path, backbone, config, result_dir, viz=True):
     except :
         model.load_state_dict(copyStateDict(net_param))
 
-
     if config.cuda:
         model = model.cuda()
-        model = torch.nn.DataParallel(model)
+        # model = torch.nn.DataParallel(model)
         cudnn.benchmark = False
 
     model.eval()
     # ------------------------------------------------------------------------------------------------------------------#
 
     total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_cl(test_set, config)
+    slice_idx = len(total_imgs_bboxes_gt) // gpu_count
+
+    # last gpu
+    if gpu_idx == gpu_count - 1:
+        piece_imgs_path = total_imgs_path[gpu_idx * slice_idx:]
+    else:
+        piece_imgs_path = total_imgs_path[gpu_idx * slice_idx: (gpu_idx + 1) * slice_idx]
 
     # -----------------------------------------------------------------------------------------------------------------#
-
-
-    total_img_bboxes_pre = []
-    for k, img_path in enumerate(tqdm(total_imgs_path)):
-
-        # if img_path.split('/')[-1] == 'img_39.jpg':
+    # total_img_bboxes_pre = []
+    for k, img_path in enumerate(piece_imgs_path):
 
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         img_name = img_path.split('/')[-1].split(".jpg")[0]
-        single_img_bbox = []
         bboxes, polys, score_text = test_net(
             model,
             image,
@@ -484,16 +510,6 @@ def main_cleval(model_path, backbone, config, result_dir, viz=True):
             config.canvas_size,
             config.mag_ratio,
         )
-
-        # -------------------------------------------------------------------------------------------------------------#
-
-        for box in bboxes:
-            box_info = {"points": None, "text": None, "ignore": None}
-            box_info["points"] = box
-            box_info["text"] = "###"
-            box_info["ignore"] = False
-            single_img_bbox.append(box_info)
-        total_img_bboxes_pre.append(single_img_bbox)
 
         # -------------------------------------------------------------------------------------------------------------#
 
@@ -514,7 +530,6 @@ def main_cleval(model_path, backbone, config, result_dir, viz=True):
         make_txt(result_pred, result_dir, img_name, dtype='pred')
 
     # -----------------------------------------------------------------------------------------------------------------#
-
 
     gt_cl_dir = load_gt_cl_dir(config, data=test_set)
 
@@ -562,14 +577,10 @@ if __name__ == "__main__":
     config = load_yaml(args.yaml)
     config = DotDict(config)
 
-
-    # wandb
     if config["wandb_opt"]:
-        wandb.init(project="craft-icdar", entity="gmuffiness", name=args.yaml)
+        wandb.init(project="craft-stage1", entity="gmuffiness", name=args.yaml)
         # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
         wandb.config.update(config)
-
-
 
     cal_eval(config, "icdar2013", "resnet-en-ko-ai-13-cl", opt="cl_eval")
     #cal_eval(config, "icdar2015", "resnet-en-ko-ai-15-iou", opt="iou_eval")

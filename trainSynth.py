@@ -3,13 +3,15 @@ import argparse
 import os
 import shutil
 import time
+import yaml
+import multiprocessing as mp
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import ConcatDataset
 import wandb
-import yaml
 
 from config.load_config import load_yaml, DotDict
 from data.dataset import SynthTextDataSet, SynthTextDataSet_KR, hierarchical_dataset, AiHubDataset
@@ -126,7 +128,7 @@ class Trainer(object):
             raise Exception("Undefined loss")
         return criterion
 
-    def iou_eval(self, dataset, train_step, save_param_path):
+    def iou_eval(self, dataset, train_step, save_param_path, buffer):
         # Input dataset : "icdar2013" |  "icdar2015" | "prescription"
 
         test_config = DotDict(self.config.test[dataset])
@@ -137,7 +139,7 @@ class Trainer(object):
 
         evaluator = DetectionIoUEvaluator()
         metrics = main_eval(
-            save_param_path, self.config.train.backbone, test_config, evaluator, val_result_dir
+            save_param_path, self.config.train.backbone, test_config, evaluator, val_result_dir, buffer
         )
         if self.config.wandb_opt:
             wandb.log(
@@ -170,7 +172,7 @@ class Trainer(object):
                 }
             )
 
-    def train(self):
+    def train(self, buffer_dict):
 
         torch.cuda.set_device(self.gpu)
 
@@ -310,7 +312,14 @@ class Trainer(object):
                     if self.config.wandb_opt:
                         wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
-                if train_step % 500 == 0 and train_step != 0 and self.gpu == 0:
+                if train_step % self.config.train.eval_interval == 0 and train_step != 0:
+
+                    # initialize all buffer with zero
+                    if self.gpu == 0:
+                        for buffer in buffer_dict.values():
+                            for i in range(len(buffer)):
+                                buffer[i] = None
+
                     print("Saving state, index:", train_step)
                     save_param_dic = {
                         "iter": train_step,
@@ -336,11 +345,12 @@ class Trainer(object):
                     torch.save(save_param_dic, save_param_path)
 
                     # validation
-                    self.iou_eval("icdar2013", train_step, save_param_path)
-                    self.iou_eval("prescription", train_step, save_param_path)
-                    self.cleval("prescription", train_step, save_param_path)
+                    self.iou_eval("icdar2013", train_step, save_param_path, buffer_dict["icdar2013"])
                     self.cleval("icdar2013", train_step, save_param_path)
-                    self.cleval("icdar2015", train_step, save_param_path)
+                    self.cleval("prescription", train_step, save_param_path)
+                    # self.iou_eval("prescription", train_step, save_param_path, buffer_dict["prescription"])
+                    # self.cleval("icdar2015", train_step, save_param_path)
+
                 train_step += 1
                 if train_step >= whole_training_step:
                     break
@@ -373,16 +383,6 @@ class Trainer(object):
 
 
 def main():
-
-    # Start train
-    ngpus_per_node = torch.cuda.device_count()
-    world_size = ngpus_per_node
-
-    torch.multiprocessing.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node,))
-
-
-def main_worker(gpu, ngpus_per_node):
-
     parser = argparse.ArgumentParser(description="CRAFT SynthText Train")
     parser.add_argument("--yaml",
                         "--yaml_file_name",
@@ -399,34 +399,48 @@ def main_worker(gpu, ngpus_per_node):
     args = parser.parse_args()
 
 
-    torch.distributed.init_process_group(
-        backend='nccl',
-        init_method='tcp://127.0.0.1:' + args.port,
-        world_size=ngpus_per_node,
-        rank=gpu)
-
     # load configure
     config = load_yaml(args.yaml)
 
-    if gpu == 0:
-        if config["wandb_opt"]:
-            # Apply config to wandb
-            wandb.init(project="jm-test", entity="pingu", name=args.yaml)
-            wandb.config.update(config)
-        print("-"*20+" Options "+"-"*20)
-        print(yaml.dump(config))
-        print("-" * 40)
+    if config["wandb_opt"]:
+        # Apply config to wandb
+        # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
+        wandb.init(project="craft-stage1", entity="gmuffiness", name=args.yaml)
+        wandb.config.update(config)
+    print("-"*20+" Options "+"-"*20)
+    print(yaml.dump(config))
+    print("-" * 40)
 
-        # Make result_dir
-        res_dir = os.path.join("exp", args.yaml)
-        config["results_dir"] = res_dir
-        if not os.path.exists(res_dir):
-            os.makedirs(res_dir)
+    # Make result_dir
+    res_dir = os.path.join("exp", args.yaml)
+    config["results_dir"] = res_dir
+    if not os.path.exists(res_dir):
+        os.makedirs(res_dir)
 
-        # Duplicate yaml file to result_dir
-        shutil.copy(
-            "config/" + args.yaml + ".yaml", os.path.join(res_dir, args.yaml) + ".yaml"
-        )
+    # Duplicate yaml file to result_dir
+    shutil.copy(
+        "config/" + args.yaml + ".yaml", os.path.join(res_dir, args.yaml) + ".yaml"
+    )
+
+
+    ngpus_per_node = torch.cuda.device_count()
+    world_size = ngpus_per_node
+
+    manager = mp.Manager()
+    buffer1 = manager.list([None] * config["test"]["icdar2013"]["test_set_size"])
+    buffer2 = manager.list([None] * config["test"]["icdar2015"]["test_set_size"])
+    buffer3 = manager.list([None] * config["test"]["prescription"]["test_set_size"])
+    buffer_dict = {"icdar2013":buffer1, "icdar2015":buffer2, "prescription":buffer3}
+    torch.multiprocessing.spawn(main_worker, nprocs=ngpus_per_node, args=(args.port, ngpus_per_node, config, buffer_dict, ))
+
+
+def main_worker(gpu, port, ngpus_per_node, config, buffer_dict):
+
+    torch.distributed.init_process_group(
+        backend='nccl',
+        init_method='tcp://127.0.0.1:' + port,
+        world_size=ngpus_per_node,
+        rank=gpu)
 
     batch_size = int(config["train"]["batch_size"] / ngpus_per_node)
     config["train"]["batch_size"] = batch_size
@@ -434,7 +448,7 @@ def main_worker(gpu, ngpus_per_node):
 
     # Start train
     trainer = Trainer(config, gpu)
-    trainer.train()
+    trainer.train(buffer_dict)
 
 
 if __name__ == "__main__":
