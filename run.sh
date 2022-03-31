@@ -10,8 +10,8 @@ for i in $SET
 
 do
 
-  CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 python3 trainSynth.py --yaml="syn_train" \
-
+  CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python3 trainIC15_ddp_test.py --yaml="prescrip_train" \
+  CUDA_VISIBLE_DEVICES=1 python3 eval_v2.py --yaml="eval" \
 
 
 done

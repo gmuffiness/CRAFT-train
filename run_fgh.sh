@@ -3,5 +3,5 @@
 EXP_NAME=ic15_weak_supervision_7
 yaml_path="config/$EXP_NAME.yaml"
 cp config/ic15_train.yaml $yaml_path
-CUDA_VISIBLE_DEVICES=4,5,6,7 python3 trainIC15_ddp.py --yaml=$EXP_NAME --port=2348
+CUDA_VISIBLE_DEVICES=4,5,6,7 python3 trainIC15_ddp_test.py --yaml=$EXP_NAME --port=2348
 rm "config/$EXP_NAME.yaml"

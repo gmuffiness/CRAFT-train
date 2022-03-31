@@ -13,9 +13,11 @@ import yaml
 
 from config.load_config import load_yaml, DotDict
 from data.dataset import SynthTextDataSet, ICDAR2015
-from eval import main as main_eval
+from data.dataset_prescrip import PreScripTion
+from eval_v2 import main_eval, main_cleval
 from loss.mseloss import Maploss, Maploss_v2, Maploss_v3
 from model.craft import CRAFT
+from model.craft_resnet import UNetWithResnet50Encoder
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils.util import copyStateDict, save_parser
 import utils.config as temp_config
@@ -82,6 +84,27 @@ class Trainer(object):
 
         return icdar15_dataset
 
+
+    def get_presctip_dataset(self):
+
+        presctip_dataset = PreScripTion(
+            output_size=self.config.train.data.output_size,
+            data_dir=self.config.data_dir.prescrip_train,
+            gauss_init_size=self.config.train.data.gauss_init_size,
+            gauss_sigma=self.config.train.data.gauss_sigma,
+            enlarge_region=self.config.train.data.enlarge_region,
+            enlarge_affinity=self.config.train.data.enlarge_affinity,
+            watershed_ver=self.config.train.data.watershed_version,
+            aug=self.config.train.data.prescrip_aug,
+            vis_test_dir=self.config.vis_test_dir,
+            vis_opt=self.config.train.data.vis_opt,
+            pseudo_vis_opt=self.config.train.data.pseudo_vis_opt,
+        )
+
+        return presctip_dataset
+
+
+
     def get_load_param(self, gpu):
 
         if self.config.train.ckpt_path is not None:
@@ -113,6 +136,56 @@ class Trainer(object):
         else:
             raise Exception("Undefined loss")
         return criterion
+
+        # note
+
+    def iou_eval(self, dataset, train_step, save_param_path):
+
+        # dataset = "icdar2013" or  "icdar2015" or "prescription"
+
+        test_config = DotDict(self.config.test[dataset])
+
+        val_result_dir = os.path.join(
+            self.config.results_dir, "{}/{}".format(dataset + "_iou", str(train_step))
+        )
+
+        evaluator = DetectionIoUEvaluator()
+        metrics = main_eval(
+            save_param_path, self.config.train.backbone, test_config, evaluator, val_result_dir
+        )
+        if self.config.wandb_opt:
+            wandb.log(
+                {
+                    "{} Recall".format(dataset): np.round(metrics["recall"], 3),
+                    "{} Precision".format(dataset): np.round(metrics["precision"], 3),
+                    "{} F1-score".format(dataset): np.round(metrics["hmean"], 3),
+                }
+            )
+
+        # note
+
+    def cleval(self, dataset, train_step, save_param_path):
+
+        # dataset = "icdar2013" or  "icdar2015" or "prescription"
+
+        test_config = DotDict(self.config.test[dataset])
+
+        val_result_dir = os.path.join(
+            self.config.results_dir, "{}/{}".format(dataset + "_cl", str(train_step))
+        )
+
+        metrics = main_cleval(
+            save_param_path, self.config.train.backbone, test_config, val_result_dir
+        )
+
+        if self.config.wandb_opt:
+            wandb.log(
+                {
+                    "{} Recall".format(dataset): np.round(metrics["recall"], 3),
+                    "{} Precision".format(dataset): np.round(metrics["precision"], 3),
+                    "{} F1-score".format(dataset): np.round(metrics["hmean"], 3),
+                }
+            )
 
     def train(self):
 
@@ -146,6 +219,7 @@ class Trainer(object):
         torch.backends.cudnn.benchmark = True
 
         # DATASET -----------------------------------------------------------------------------------------------------#
+
         trn_syn_loader = self.get_synth_loader()
         batch_syn = iter(trn_syn_loader)
         trn_icdar_dataset = self.get_icdar_dataset()
@@ -326,22 +400,10 @@ class Trainer(object):
                     torch.save(save_param_dic, save_param_path)
 
                     # validation
-                    evaluator = DetectionIoUEvaluator()
-                    val_result_dir = os.path.join(
-                        self.config.results_dir, "{}".format(str(train_step))
-                    )
-                    metrics = main_eval(
-                        save_param_path, self.config, evaluator, val_result_dir
-                    )
-                    #
-                    if self.config.wandb_opt:
-                        wandb.log(
-                            {
-                                "ICDAR2015 Recall": np.round(metrics["recall"], 3),
-                                "ICDAR2015 Precision": np.round(metrics["precision"], 3),
-                                "ICDAR2015 F1-score": np.round(metrics["hmean"], 3),
-                            }
-                        )
+                    self.iou_eval("icdar2013", train_step, save_param_path)
+                    self.cleval("prescription", train_step, save_param_path)
+
+
 
                 train_step += 1
                 temp_config.ITER = train_step
@@ -369,20 +431,11 @@ class Trainer(object):
                 )
             torch.save(save_param_dic, save_param_path)
 
-            evaluator = DetectionIoUEvaluator()
-            val_result_dir = os.path.join(
-                self.config.results_dir, "{}".format(str(train_step))
-            )
-            metrics = main_eval(save_param_path, self.config, evaluator, val_result_dir)
+            # validation
+            self.iou_eval("icdar2013", train_step, save_param_path)
+            self.cleval("prescription", train_step, save_param_path)
 
             if self.config.wandb_opt:
-                wandb.log(
-                    {
-                        "ICDAR2015 Recall": np.round(metrics["recall"], 3),
-                        "ICDAR2015 Precision": np.round(metrics["precision"], 3),
-                        "ICDAR2015 F1-score": np.round(metrics["hmean"], 3),
-                    }
-                )
                 wandb.finish()
 
 
@@ -390,7 +443,6 @@ def main():
 
     # Start train
     ngpus_per_node = torch.cuda.device_count() // 2
-    # ngpus_per_node = 4
     world_size = ngpus_per_node
 
     torch.multiprocessing.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node,))
@@ -426,7 +478,7 @@ def main_worker(gpu, ngpus_per_node):
     if gpu == 0:
         # Apply config to wandb
         if config["wandb_opt"]:
-            wandb.init(project="craft-icdar", entity="gmuffiness", name=args.yaml)
+            wandb.init(project="craft-icdar", entity="woans0104", name=args.yaml)
             wandb.config.update(config)
         print("-"*20+" Options "+"-"*20)
         print(yaml.dump(config))

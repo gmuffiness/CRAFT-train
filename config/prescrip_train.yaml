@@ -1,37 +1,45 @@
 results_dir: "./exp/"
-vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
-wandb_opt: False
+#vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
+vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-0324/exp/viz"
+wandb_opt: True
 
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
+  ic15: "/data/ICDAR2015/"
+  ic15_gt: NULL
+  ic13: "/data/ICDAR2013/"
+  prescrip_train : "/data/prescription-train/"
 
 
 
 train:
-  backbone : vgg
-  dataset: ["synthtext"]
-  ckpt_path: null
-  batch_size: 48
+  backbone : resnet
+  ckpt_path: "/nas/home/shwang/workspace/CRAFT-Refactoring/exp/syn_en_ko_resnet/CRAFT_clr_amp_60000.pth"
+  #ckpt_path: "/nas/home/jihyokim/jm/CRAFT-Refactoring/config/shwang_test26_CRAFT_clr_amp_60000.pth"
+  dataset: "prescription" # icdar2015, prescription
+  batch_size: 20
   st_iter: 0
-  end_iter: 60000
+  end_iter: 50000
   lr: 0.0001
   lr_decay: 15000
   gamma: 0.2
   weight_decay: 0.00001
   num_workers: 4
   amp: True
-  loss: 3
-  neg_rto: 1
-  n_min_neg: 1000
+  loss: 2
+  neg_rto: 0.3
+  n_min_neg: 5000
   data:
     vis_opt: False
+    pseudo_vis_opt: False
     output_size: 768
     enlarge_region : [0.5, 0.5] # x axis, y axis
-    enlarge_affinity: [0.5, 0.5]
+    enlarge_affinity: [0., 0.5]
     gauss_init_size: 200
     gauss_sigma: 40
-    syn_sample : null
+    watershed_version: "skimage"
+    syn_sample : -1
     syn_aug:
       random_scale:
         range: [1.0, 1.5, 2.0]
@@ -40,10 +48,9 @@ train:
         max_angle: 20
         option: False
       random_crop:
-        version: "random_resize_crop"
+        version: "random_resize_crop_synth"
         scale: [0.333, 1.0]
         ratio: [0.75, 1.333]
-        rnd_threshold : 1.0
         option: True
       random_horizontal_flip:
         option: False
@@ -53,13 +60,31 @@ train:
         saturation: 0.2
         hue: 0.2
         option: True
-
+    prescrip_aug:
+      random_scale:
+        range: [ 1.0, 1.5, 2.0 ]
+        option: False
+      random_rotate:
+        max_angle: 20
+        option: True
+      random_crop:
+        version: "random_resize_crop"
+        scale: [0.05, 0.2]
+        ratio: [0.75, 1.33]
+        rnd_threshold: 1
+        option: True
+      random_horizontal_flip:
+        option: True
+      random_colorjitter:
+        brightness: 0.2
+        contrast: 0.2
+        saturation: 0.2
+        hue: 0.2
+        option: True
 
 test:
-  trained_model: null
+  trained_model : null
   icdar2013:
-    cuda: True
-    vis_opt: True
     test_data_dir : "/data/ICDAR2013/"
     text_threshold: 0.85 # ICDAR2015 0.85
     low_text: 0.5 # ICDAR2015 0.5
@@ -67,9 +92,9 @@ test:
     canvas_size: 960
     mag_ratio: 1.5
     poly: False
-  icdar2015:
     cuda: True
     vis_opt: True
+  icdar2015:
     test_data_dir: "/data/ICDAR2015/"
     text_threshold: 0.85 # ICDAR2015 0.85
     low_text: 0.5 # ICDAR2015 0.5
@@ -77,9 +102,9 @@ test:
     canvas_size: 2240
     mag_ratio: 1.75
     poly: False
-  prescription:
     cuda: True
     vis_opt: True
+  prescription:
     test_data_dir: "/data/prescription/"
     text_threshold: 0.1 # ICDAR2015 0.85
     low_text: 0.25 # ICDAR2015 0.5
@@ -87,3 +112,5 @@ test:
     canvas_size: 2560
     mag_ratio: 1.
     poly: False
+    cuda: True
+    vis_opt: True

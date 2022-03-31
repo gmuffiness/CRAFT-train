@@ -139,6 +139,7 @@ class GaussianBuilder(object):
         return score_map
 
     def calculate_affinity_box_points(self, bbox_1, bbox_2):
+
         center_1, center_2 = np.mean(bbox_1, axis=0), np.mean(bbox_2, axis=0)
         tl = (bbox_1[0:2].sum(0) + center_1) / 3
         bl = (bbox_2[0:2].sum(0) + center_2) / 3
