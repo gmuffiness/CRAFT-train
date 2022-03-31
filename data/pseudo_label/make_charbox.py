@@ -32,8 +32,12 @@ class PseudoCharBoxBuilder:
         h = max(
             int(np.linalg.norm(box[0] - box[3])), int(np.linalg.norm(box[1] - box[2]))
         )
+        try:
+            word_ratio = h / w
+        except:
+            import ipdb;ipdb.set_trace()
 
-        word_ratio = h / w
+
         one_char_ratio = (min(h, w) / (max(h, w) / len(word)))
 
         if word_ratio > 2 or (word_ratio > 1.6 and one_char_ratio > 2.4):
@@ -262,7 +266,9 @@ class PseudoCharBoxBuilder:
         real_word_without_space = word.replace("\s", "")
         real_char_len = len(real_word_without_space)
         # Fix height to 64 --> https://github.com/clovaai/CRAFT-pytorch/issues/18
-        scale = 64.0 / word_image.shape[0]
+        #scale = 64.0 / word_image.shape[0]
+        scale = 128.0 / word_image.shape[0]
+
         word_image = cv2.resize(word_image, None, fx=scale, fy=scale)
         word_img_h, word_img_w, _ = word_image.shape
 

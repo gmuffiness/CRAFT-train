@@ -4,7 +4,7 @@ import random
 import cv2
 import numpy as np
 from PIL import Image
-from torchvision.transforms.functional import resized_crop
+from torchvision.transforms.functional import resized_crop, crop
 from torchvision.transforms import RandomResizedCrop, RandomCrop
 from torchvision.transforms import InterpolationMode
 
@@ -14,6 +14,7 @@ def rescale_ic15(img, bboxes, target_size=2240):
     img = cv2.resize(img, dsize=None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
     bboxes = bboxes * scale
     return img, bboxes
+
 
 
 def random_resize_crop_synth(augment_targets, size):
@@ -114,6 +115,36 @@ def random_resize_crop(augment_targets, scale, ratio, size, threshold):
     # --------------------------------------------------------------------------------------------------------------#
 
     return augment_targets
+
+
+def random_crop(augment_targets, size):
+    # --------------------------------------------------------------------------------------------------------------#
+    image, region_score, affinity_score, confidence_mask = augment_targets
+
+    image = Image.fromarray(image)
+    region_score = Image.fromarray(region_score)
+    affinity_score = Image.fromarray(affinity_score)
+    confidence_mask = Image.fromarray(confidence_mask)
+
+
+    i,j,h,w = RandomCrop.get_params(image, output_size=(size,size))
+
+    image = crop(image, i, j, h, w)
+    region_score = crop(region_score, i, j, h, w)
+    affinity_score = crop(affinity_score, i, j, h, w)
+    confidence_mask = crop(confidence_mask, i, j, h, w)
+
+    image = np.array(image)
+    region_score = np.array(region_score)
+    affinity_score = np.array(affinity_score)
+    confidence_mask = np.array(confidence_mask)
+    augment_targets = [image, region_score, affinity_score, confidence_mask]
+    # --------------------------------------------------------------------------------------------------------------#
+
+    return augment_targets
+
+
+
 
 
 def random_crop_with_bbox(augment_targets, word_level_char_bbox, output_size):
