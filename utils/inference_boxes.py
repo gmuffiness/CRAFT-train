@@ -332,8 +332,8 @@ def test_net(
         y, feature = net(x)
 
     # make score and link map
-    score_text = y[0, :, :, 0].cpu().data.numpy()
-    score_link = y[0, :, :, 1].cpu().data.numpy()
+    score_text = y[0, :, :, 0].cpu().data.numpy().astype(np.float32)
+    score_link = y[0, :, :, 1].cpu().data.numpy().astype(np.float32)
 
     # NOTE
     score_text = score_text[: size_heatmap[0], : size_heatmap[1]]

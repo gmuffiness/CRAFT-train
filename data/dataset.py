@@ -420,7 +420,7 @@ class SynthTextDataSet_KR(CraftBaseDataset):
         txt = gt.attrs["txt"]
 
         all_char_bbox = charBB.transpose((2, 1, 0))
-        image, all_char_bbox = self.dilate_img_to_output_size(image, all_char_bbox)
+        # image, all_char_bbox = self.dilate_img_to_output_size(image, all_char_bbox)
 
         img_h, img_w, _ = image.shape
         confidence_mask = np.ones((img_h, img_w), np.float32)

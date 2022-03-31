@@ -22,6 +22,7 @@ from model.craft_resnet import UNetWithResnet50Encoder
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils.util import copyStateDict, save_parser
 
+
 class Trainer(object):
     def __init__(self, config, gpu):
 
@@ -108,7 +109,7 @@ class Trainer(object):
 
 
     def adjust_learning_rate(self, optimizer, gamma, step, lr):
-        """Sets the learning rate to the initial LR decayed by 10 at every
+        """Sets the learning rate to the initial LR decayed by gamma value at every
             specified step
         # Adapted from PyTorch Imagenet example:
         # https://github.com/pytorch/examples/blob/master/imagenet/main.py
@@ -128,7 +129,7 @@ class Trainer(object):
             raise Exception("Undefined loss")
         return criterion
 
-    def iou_eval(self, dataset, train_step, save_param_path, buffer):
+    def iou_eval(self, dataset, train_step, save_param_path, buffer, model):
         # Input dataset : "icdar2013" |  "icdar2015" | "prescription"
 
         test_config = DotDict(self.config.test[dataset])
@@ -137,11 +138,10 @@ class Trainer(object):
             self.config.results_dir, "{}/{}".format(dataset+"_iou", str(train_step))
         )
 
-        if self.gpu == 0 and not os.path.exists(val_result_dir):
-            os.makedirs(val_result_dir)
         evaluator = DetectionIoUEvaluator()
+
         metrics = main_eval(
-            save_param_path, self.config.train.backbone, test_config, evaluator, val_result_dir, buffer
+            save_param_path, self.config.train.backbone, test_config, evaluator, val_result_dir, buffer, model
         )
         if self.gpu == 0 and self.config.wandb_opt:
             wandb.log(
@@ -152,7 +152,7 @@ class Trainer(object):
                 }
             )
 
-    def cleval(self, dataset, train_step, save_param_path):
+    def cleval(self, dataset, train_step, save_param_path, model):
         # Input dataset : "icdar2013" |  "icdar2015" | "prescription"
 
         test_config = DotDict(self.config.test[dataset])
@@ -160,11 +160,9 @@ class Trainer(object):
         val_result_dir = os.path.join(
             self.config.results_dir, "{}/{}".format(dataset+"_cl", str(train_step))
         )
-        if self.gpu == 0 and not os.path.exists(val_result_dir):
-            os.makedirs(val_result_dir)
 
         metrics = main_cleval(
-            save_param_path, self.config.train.backbone, test_config, val_result_dir
+            save_param_path, self.config.train.backbone, test_config, val_result_dir, model
         )
 
         if self.gpu == 0 and self.config.wandb_opt:
@@ -189,7 +187,7 @@ class Trainer(object):
         elif self.config.train.backbone == "resnet":
             craft = UNetWithResnet50Encoder(pretrained=True, amp=self.config.train.amp)
         else:
-            raise Exception('Undefined `architec`ture')
+            raise Exception('Undefined architecture')
 
         # load model
         if self.config.train.ckpt_path is not None:
@@ -199,6 +197,7 @@ class Trainer(object):
         craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[self.gpu])
 
         torch.backends.cudnn.benchmark = True
+
         # OPTIMIZER----------------------------------------------------------------------------------------------------#
 
         optimizer = optim.Adam(
@@ -317,7 +316,7 @@ class Trainer(object):
                         wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
                 if train_step % self.config.train.eval_interval == 0 and train_step != 0:
-
+                    craft.eval()
                     # initialize all buffer with zero
                     if self.gpu == 0:
                         for buffer in buffer_dict.values():
@@ -349,9 +348,9 @@ class Trainer(object):
                     torch.save(save_param_dic, save_param_path)
 
                     # validation
-                    # self.iou_eval("icdar2013", train_step, save_param_path, buffer_dict["icdar2013"])
-                    self.cleval("icdar2013", train_step, save_param_path)
-                    # self.cleval("prescription", train_step, save_param_path)
+                    self.iou_eval("icdar2013", train_step, save_param_path, buffer_dict["icdar2013"], craft)
+                    self.cleval("icdar2013", train_step, save_param_path, craft)
+                    self.cleval("prescription", train_step, save_param_path, craft)
                     # self.iou_eval("prescription", train_step, save_param_path, buffer_dict["prescription"])
                     # self.cleval("icdar2015", train_step, save_param_path)
 

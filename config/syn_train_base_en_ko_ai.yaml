@@ -1,13 +1,13 @@
 results_dir: "./exp/"
 #vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
 vis_test_dir: "/nas/home/gmuffiness/result/debug_ai_hub_dataset_class"
-wandb_opt: True
+wandb_opt: False
 
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
   synthtext_kor : "/data/SynthText-KR"
-  ai_hub : "/data/ai-hub-data/textinthewild_data"
+  ai_hub : "/nas/datahub/ai-hub-data/textinthewild_data"
   prescription: "/data/prescription/"
 
 train:
@@ -15,11 +15,11 @@ train:
   dataset: ["synthtext", "synthtext_kor", "ai_hub"] # option : [synthtext, synthtext_kor, ai_hub]
   ckpt_path: null
   eval_interval: 1000
-  batch_size: 24
+  batch_size: 12
   st_iter: 0
-  end_iter: 60000
+  end_iter: 100000
   lr: 0.0001
-  lr_decay: 15000
+  lr_decay: 30000
   gamma: 0.2
   weight_decay: 0.00001
   num_workers: 2
@@ -104,7 +104,7 @@ train:
 
 
 test:
-  trained_model: null
+  trained_model: "/nas/home/gmuffiness/workspace/ocr_related/daintlab-CRAFT-Reimplementation/clean-code/exp/syn_train_base_en_ko_ai/CRAFT_clr_amp_41000.pth"
   icdar2013:
     test_set_size: 233
     cuda: True

@@ -317,11 +317,12 @@ def load_gt_cl_dir(config, data):
     elif data == "prescription":
         gt_cl_dir = config.test_data_dir
     else:
+        gt_cl_dir = None
         print("no dataset")
     return gt_cl_dir
 
 
-def main_eval(model_path, backbone, config, evaluator, result_dir, buffer):
+def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model):
 
     # test 폴더에 대한 학습된 모델의 f1-score를 계산
     # test 폴더에 대한 model의 output 시각화
@@ -330,6 +331,9 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer):
     # model_path : 학습된 모델의 저장 경로
     # config : test에 필요한 configuration, dict type
     # evaluator : test function
+
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir, exist_ok=True)
 
     # check buffer for distributed evaluation
     assert all(v is None for v in buffer), 'Buffer already filled with another value'
@@ -343,23 +347,25 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer):
     test_set = config.test_data_dir.split("/")[-2].lower()
 
     # load model
-    if backbone == "vgg":
-        model = CRAFT()  # initialize
-    elif backbone == "resnet":
-        model = UNetWithResnet50Encoder()
-    else:
-        raise Exception('Undefined architecture')
-
-    print("Loading weights from checkpoint (" + model_path + ")")
-    net_param = torch.load(model_path)
-    model.load_state_dict(copyStateDict(net_param["craft"]))
-
-    if config.cuda:
-        model = model.cuda()
-        # model = torch.nn.DataParallel(model)
-        cudnn.benchmark = False
-
-    model.eval()
+    # if backbone == "vgg":
+    #     model = CRAFT()  # initialize
+    # elif backbone == "resnet":
+    #     model = UNetWithResnet50Encoder()
+    # else:
+    #     raise Exception('Undefined architecture')
+    #
+    # print("Loading weights from checkpoint (" + model_path + ")")
+    # net_param = torch.load(model_path, map_location=f'cuda:{gpu_idx}')
+    # model.load_state_dict(copyStateDict(net_param["craft"]))
+    #
+    # if config.cuda:
+    #     model = model.cuda()
+    #     # model = torch.nn.DataParallel(model)
+    #     cudnn.benchmark = False
+    #
+    # model.eval()
+    # model = model.cuda()
+    # cudnn.benchmark = False
     # ------------------------------------------------------------------------------------------------------------------#
 
     total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_iou(test_set, config)
@@ -410,6 +416,7 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer):
             )
 
     # ------------------------------------------------------------------------------------------------------------------#
+
     # wait until buffer is full filled
     while None in buffer:
         continue
@@ -437,7 +444,7 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer):
 
 
 # NOTE
-def main_cleval(model_path, backbone, config, result_dir):
+def main_cleval(model_path, backbone, config, result_dir, model):
 
     # test 폴더에 대한 학습된 모델의 f1-score를 계산
     # test 폴더에 대한 model의 output 시각화
@@ -447,9 +454,11 @@ def main_cleval(model_path, backbone, config, result_dir):
     # config : test에 필요한 configuration, dict type
     # evaluator : test function
 
-    # print(len(total_imgs_bboxes_gt)) # 500
-    print('Current cuda device:', torch.cuda.current_device())
-    print('Total gpu :', torch.cuda.device_count())
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir, exist_ok=True)
+
+    # print('Current cuda device:', torch.cuda.current_device())
+    # print('Total gpu :', torch.cuda.device_count())
     gpu_idx = torch.cuda.current_device()
     gpu_count = torch.cuda.device_count()
     torch.cuda.set_device(gpu_idx)
@@ -457,26 +466,28 @@ def main_cleval(model_path, backbone, config, result_dir):
     test_set = config.test_data_dir.split("/")[-2].lower()
 
     # load model
-    if backbone == "vgg":
-        model = CRAFT()  # initialize
-    elif backbone == "resnet":
-        model = UNetWithResnet50Encoder()
-    else:
-        raise Exception('Undefined architecture')
-
-    print("Loading weights from checkpoint (" + model_path + ")")
-    net_param = torch.load(model_path, map_location=f'cuda:{gpu_idx}')
-    try:
-        model.load_state_dict(copyStateDict(net_param["craft"]))
-    except :
-        model.load_state_dict(copyStateDict(net_param))
-
-    if config.cuda:
-        model = model.cuda()
-        # model = torch.nn.DataParallel(model)
-        cudnn.benchmark = False
+    # if backbone == "vgg":
+    #     model = CRAFT()  # initialize
+    # elif backbone == "resnet":
+    #     model = UNetWithResnet50Encoder()
+    # else:
+    #     raise Exception('Undefined architecture')
+    #
+    # print("Loading weights from checkpoint (" + model_path + ")")
+    # net_param = torch.load(model_path, map_location=f'cuda:{gpu_idx}')
+    # try:
+    #     model.load_state_dict(copyStateDict(net_param["craft"]))
+    # except :
+    #     model.load_state_dict(copyStateDict(net_param))
+    #
+    # if config.cuda:
+    #     model = model.cuda()
+    #     # model = torch.nn.DataParallel(model)
+    #     cudnn.benchmark = False
 
     model.eval()
+    # model = model.cuda()
+    # cudnn.benchmark = False
     # ------------------------------------------------------------------------------------------------------------------#
 
     total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_cl(test_set, config)
@@ -536,7 +547,7 @@ def main_cleval(model_path, backbone, config, result_dir):
 
     metrics = clEval.main(gt_cl_dir, result_dir, GT_BOX_TYPE=GT_BOX_TYPE,PRED_BOX_TYPE="QUAD")
 
-    print('Finish : detection evaluation' + '-' * 50)
+    print('Finish : cleval evaluation' + '-' * 50)
 
     # save result
     with open(os.path.join(result_dir,"result.txt"), "w") as f:
@@ -546,11 +557,12 @@ def main_cleval(model_path, backbone, config, result_dir):
 
 def cal_eval(config, data, res_dir_name, opt):
     evaluator = DetectionIoUEvaluator()
+    # import ipdb; ipdb.set_trace()
     test_config = DotDict(config.test[data])
     res_dir = os.path.join(os.path.join("exp", args.yaml), "{}".format(res_dir_name))
 
     if opt == "iou_eval":
-        main_eval(config.test.trained_model, config.train.backbone, test_config, evaluator, res_dir)
+        main_eval(config.test.trained_model, config.train.backbone, test_config, evaluator, res_dir, buffer=None)
     elif opt == "cl_eval":
         main_cleval(config.test.trained_model, config.train.backbone, test_config, res_dir)
     else:
@@ -563,7 +575,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--yaml",
         "--yaml_file_name",
-        default="ic15_train",
+        default="syn_train_base_en_ko_ai",
         type=str,
         help="Load configuration",
     )
@@ -578,8 +590,10 @@ if __name__ == "__main__":
         # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
         wandb.config.update(config)
 
-    cal_eval(config, "icdar2013", "resnet-en-ko-ai-13-cl", opt="cl_eval")
+    val_result_dir_name = args.yaml
+    cal_eval(config, "icdar2013", val_result_dir_name + '-ic13-iou', opt="iou_eval")
+    cal_eval(config, "icdar2013", val_result_dir_name + '-ic13-cl', opt="cl_eval")
     #cal_eval(config, "icdar2015", "resnet-en-ko-ai-15-iou", opt="iou_eval")
-    cal_eval(config, "prescription", "resnet-en-ko-ai-pre-cl", opt="cl_eval")
+    cal_eval(config, "prescription", val_result_dir_name + '-pre-cl', opt="cl_eval")
 
 
