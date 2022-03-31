@@ -59,12 +59,17 @@ def saveInput(imagename, vis_dir, image, region_scores, affinity_scores, confide
     output = np.concatenate([gt_scores, confidence_mask_gray], axis=1)
 
     output = np.hstack([image, output])
-    outpath = os.path.join(os.path.join(vis_dir, str(temp_config.ITER // 100)), "%s_input.jpg" % imagename)
+
+    # synthtext
+    if type(imagename) is not str:
+        imagename = imagename[0].split('/')[-1][:-4]
+
+    outpath = vis_dir + f"/{imagename}_input.jpg"
     if not os.path.exists(os.path.dirname(outpath)):
         os.makedirs(os.path.dirname(outpath))
     cv2.imwrite(outpath, output)
-    # print(f'Logging train input into {outpath}')
-    # import ipdb; ipdb.set_trace()
+    print(f'Logging train input into {outpath}')
+
 
 def saveImage(imagename, vis_dir, image, bboxes, affi_bboxes, region_scores, affinity_scores, confidence_mask):
     output_image = np.uint8(image.copy())
@@ -91,8 +96,13 @@ def saveImage(imagename, vis_dir, image, bboxes, affi_bboxes, region_scores, aff
     overlay_aff = cv2.addWeighted(image.copy(), 0.4, overlay_aff, 0.6, 5)
 
     heat_map = np.concatenate([overlay_region, overlay_aff], axis=1)
+
+    # synthtext
+    if type(imagename) is not str:
+        imagename = imagename[0].split('/')[-1][:-4]
+
     output = np.concatenate([output_image, heat_map, confidence_mask_gray], axis=1)
-    outpath = os.path.join(os.path.join(vis_dir, str(temp_config.ITER // 100)), imagename)
+    outpath = vis_dir + f"/{imagename}_original.jpg"
     if not os.path.exists(os.path.dirname(outpath)):
         os.makedirs(os.path.dirname(outpath))
 
