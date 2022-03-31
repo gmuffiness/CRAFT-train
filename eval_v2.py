@@ -571,8 +571,8 @@ if __name__ == "__main__":
 
 
 
-    cal_eval(config, "icdar2013", "resnet-en-ko-ai-13-cl", opt="cl_eval")
+    cal_eval(config, "icdar2015", "res-en-ko-ai-cl", opt="cl_eval")
     #cal_eval(config, "icdar2015", "resnet-en-ko-ai-15-iou", opt="iou_eval")
-    cal_eval(config, "prescription", "resnet-en-ko-ai-pre-cl", opt="cl_eval")
+    #cal_eval(config, "prescription", "resnet-en-ko-ai-pre-cl", opt="cl_eval")
 
 

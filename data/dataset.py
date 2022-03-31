@@ -225,10 +225,23 @@ class SynthTextDataSet(Dataset):
             words,
         ) = self.make_gt_score(index)
 
+
+        #--------------------------------------------#
+
         image, region_score, affinity_score, confidence_mask = self.augment_image(
             image, region_score, affinity_score, confidence_mask, word_level_char_bbox
         )
-
+        # --------------------------------------------#
+        if self.vis_opt :
+            saveInput(
+                self.img_names[index],
+                self.vis_test_dir,
+                image,
+                region_score,
+                affinity_score,
+                confidence_mask,
+            )
+        # --------------------------------------------#
         region_score = self.resize_to_half(region_score, interpolation=cv2.INTER_CUBIC)
         affinity_score = self.resize_to_half(affinity_score, interpolation=cv2.INTER_CUBIC)
         confidence_mask = self.resize_to_half(confidence_mask, interpolation=cv2.INTER_NEAREST)
@@ -237,6 +250,10 @@ class SynthTextDataSet(Dataset):
             np.array(image), mean=(0.485, 0.456, 0.406), variance=(0.229, 0.224, 0.225)
         )
         image = image.transpose(2, 0, 1)
+
+
+
+
 
         return image, region_score, affinity_score, confidence_mask
 
