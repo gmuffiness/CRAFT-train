@@ -1,21 +1,21 @@
 results_dir: "./exp/"
 #vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
-vis_test_dir: "/nas/home/gmuffiness/result/debug_ai_hub_dataset_class"
+vis_test_dir: "/nas/home/gmuffiness/result/debug_ai_hub_dataset_class_temp2"
 wandb_opt: False
 
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
   synthtext_kor : "/data/SynthText-KR"
-  ai_hub : "/data/ai-hub-data/textinthewild_data"
+  ai_hub : "/nas/datahub/ai-hub-data/textinthewild_data"
   prescription: "/data/prescription/"
 
 train:
-  backbone : resnet
+  backbone : vgg
   dataset: ["synthtext", "synthtext_kor", "ai_hub"] # option : [synthtext, synthtext_kor, ai_hub]
   ckpt_path: null
-  eval_interval: 1000
-  batch_size: 12
+  eval_interval: 500
+  batch_size: 4
   st_iter: 0
   end_iter: 100000
   lr: 0.0001

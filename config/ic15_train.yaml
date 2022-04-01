@@ -1,6 +1,6 @@
 results_dir: "./exp/"
 #vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
-vis_test_dir: "/nas/home/gmuffiness/result/debug_ic15_weak_supervision"
+vis_test_dir: "/nas/home/gmuffiness/result/debug_ic15_weak_supervision_temp"
 wandb_opt: False
 
 data_dir:
@@ -12,6 +12,7 @@ data_dir:
   ic13: "/data/ICDAR2013/"
 
 train:
+  backbone : vgg
   ckpt_path: "/nas/home/jihyokim/jm/CRAFT-Refactoring/config/shwang_test26_CRAFT_clr_amp_60000.pth"
   eval_interval: 500
   batch_size: 10
@@ -86,17 +87,37 @@ train:
         option: True
 
 test:
-  test_data_dir: "/data/ICDAR2015/"
-  vis_opt: False
-  trained_model: null
-#  trained_model: "/nas/home/gmuffiness/workspace/ocr_related/daintlab-CRAFT-Reimplementation/clean-code/exp/ic15_weak_supervision_7/CRAFT_clr_amp_13000.pth"
-#  trained_model: "/nas/home/gmuffiness/workspace/ocr_related/daintlab-CRAFT-Reimplementation/clean-code/exp/ic15_train_with_gt/CRAFT_clr_amp_49500.pth"
-  text_threshold: 0.75 # ICDAR2015 0.85
-  low_text: 0.5 # ICDAR2015 0.5
-  link_threshold: 0.2 # ICDAR2013: 0.2
-  cuda: True
-  canvas_size:
-    icdar2013: 960
-    icdar2015: 2240
-  mag_ratio: 1.75
-  poly: False
+  trained_model : null
+  icdar2013:
+    test_set_size: 233
+    test_data_dir : "/data/ICDAR2013/"
+    text_threshold: 0.85 # ICDAR2015 0.85
+    low_text: 0.5 # ICDAR2015 0.5
+    link_threshold: 0.2 # ICDAR2013: 0.2
+    canvas_size: 960
+    mag_ratio: 1.5
+    poly: False
+    cuda: True
+    vis_opt: True
+  icdar2015:
+    test_set_size: 500
+    test_data_dir: "/data/ICDAR2015/"
+    text_threshold: 0.85 # ICDAR2015 0.85
+    low_text: 0.5 # ICDAR2015 0.5
+    link_threshold: 0.2 # ICDAR2013: 0.2
+    canvas_size: 2240
+    mag_ratio: 1.75
+    poly: False
+    cuda: True
+    vis_opt: True
+  prescription:
+    test_set_size: 87
+    test_data_dir: "/data/prescription/"
+    text_threshold: 0.1 # ICDAR2015 0.85
+    low_text: 0.25 # ICDAR2015 0.5
+    link_threshold: 0.4 # ICDAR2013: 0.2
+    canvas_size: 2560
+    mag_ratio: 1.
+    poly: False
+    cuda: True
+    vis_opt: True

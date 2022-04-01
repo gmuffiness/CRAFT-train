@@ -28,6 +28,7 @@ class Trainer(object):
 
         self.config = config
         self.gpu = gpu
+        self.mode = None
         self.trn_loader, self.trn_sampler = self.get_trn_loader()
         self.net_param = self.get_load_param(gpu)
 
@@ -141,7 +142,7 @@ class Trainer(object):
         evaluator = DetectionIoUEvaluator()
 
         metrics = main_eval(
-            save_param_path, self.config.train.backbone, test_config, evaluator, val_result_dir, buffer, model
+            save_param_path, self.config.train.backbone, test_config, evaluator, val_result_dir, buffer, model, self.mode
         )
         if self.gpu == 0 and self.config.wandb_opt:
             wandb.log(
@@ -162,7 +163,7 @@ class Trainer(object):
         )
 
         metrics = main_cleval(
-            save_param_path, self.config.train.backbone, test_config, val_result_dir, model
+            save_param_path, self.config.train.backbone, test_config, val_result_dir, model, self.mode
         )
 
         if self.gpu == 0 and self.config.wandb_opt:
@@ -316,7 +317,7 @@ class Trainer(object):
                         wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
                 if train_step % self.config.train.eval_interval == 0 and train_step != 0:
-                    craft.eval()
+
                     # initialize all buffer with zero
                     if self.gpu == 0:
                         for buffer in buffer_dict.values():
@@ -378,7 +379,7 @@ class Trainer(object):
             torch.save(save_param_dic, save_param_path)
             # NOTE
             self.iou_eval("icdar2013", train_step, save_param_path)
-            #self.cleval("icdar2013", train_step, save_param_path)
+            self.cleval("icdar2013", train_step, save_param_path)
             self.cleval("prescription", train_step, save_param_path)
 
             if self.config.wandb_opt:
@@ -401,8 +402,8 @@ def main():
 
     args = parser.parse_args()
 
-    exp_name = args.yaml
     # load configure
+    exp_name = args.yaml
     config = load_yaml(args.yaml)
 
     print("-"*20+" Options "+"-"*20)
@@ -441,8 +442,8 @@ def main_worker(gpu, port, ngpus_per_node, config, buffer_dict, exp_name):
         world_size=ngpus_per_node,
         rank=gpu)
 
+    # Apply config to wandb
     if gpu == 0 and config["wandb_opt"]:
-        # Apply config to wandb
         # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
         wandb.init(project="craft-stage1", entity="gmuffiness", name=exp_name)
         wandb.config.update(config)

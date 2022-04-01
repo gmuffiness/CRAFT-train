@@ -77,9 +77,9 @@ def saveImage(imagename, vis_dir, image, bboxes, affi_bboxes, region_scores, aff
     if len(bboxes) > 0:
         for i in range(len(bboxes)):
             _bboxes = np.int32(bboxes[i])
-            word_box_min = np.min(_bboxes.reshape(-1, 2), axis=0)
-            word_box_max = np.max(_bboxes.reshape(-1, 2), axis=0)
-            cv2.rectangle(output_image, word_box_min, word_box_max, (0, 255, 0))
+            # word_box_min = np.min(_bboxes.reshape(-1, 2), axis=0)
+            # word_box_max = np.max(_bboxes.reshape(-1, 2), axis=0)
+            # cv2.rectangle(output_image, word_box_min, word_box_max, (0, 255, 0))
             for j in range(_bboxes.shape[0]):
                 cv2.polylines(output_image, [np.reshape(_bboxes[j], (-1, 1, 2))], True, (0, 0, 255))
 

@@ -625,10 +625,11 @@ class AiHubDataset(CraftBaseDataset):
             (
                 affinity_score,
                 all_affinity_bbox,
-            ) = self.gaussian_builder.generate_affinity(
+            ) = self.gaussian_builder.generate_affinity_ai(
                 img_h,
                 img_w,
                 word_level_char_bbox,
+                vertical=vertical_word,
                 horizontal_text_bools=horizontal_text_bools,
             )
 

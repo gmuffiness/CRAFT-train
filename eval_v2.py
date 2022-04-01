@@ -322,7 +322,7 @@ def load_gt_cl_dir(config, data):
     return gt_cl_dir
 
 
-def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model):
+def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model, mode):
 
     # test 폴더에 대한 학습된 모델의 f1-score를 계산
     # test 폴더에 대한 model의 output 시각화
@@ -337,7 +337,10 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model
 
     test_set = config.test_data_dir.split("/")[-2].lower()
 
-    gpu_count = torch.cuda.device_count()
+    if mode == 'weak_supervision':
+        gpu_count = torch.cuda.device_count() // 2
+    else:
+        gpu_count = torch.cuda.device_count()
     gpu_idx = torch.cuda.current_device()
     torch.cuda.set_device(gpu_idx)
 
@@ -402,6 +405,7 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model
         total_img_bboxes_pre.append(single_img_bbox)
         if buffer is not None:
             buffer[gpu_idx * slice_idx + k] = single_img_bbox
+        # print(sum([element is not None for element in buffer]))
         # -------------------------------------------------------------------------------------------------------------#
 
         if config.vis_opt:
@@ -416,7 +420,6 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model
             )
 
     # ------------------------------------------------------------------------------------------------------------------#
-
     # wait until buffer is full filled
     if buffer is not None:
         while None in buffer:
@@ -445,7 +448,7 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model
 
 
 # NOTE
-def main_cleval(model_path, backbone, config, result_dir, model):
+def main_cleval(model_path, backbone, config, result_dir, model, mode):
 
     # test 폴더에 대한 학습된 모델의 f1-score를 계산
     # test 폴더에 대한 model의 output 시각화
@@ -460,8 +463,12 @@ def main_cleval(model_path, backbone, config, result_dir, model):
 
     test_set = config.test_data_dir.split("/")[-2].lower()
 
+    if mode == 'weak_supervision':
+        gpu_count = torch.cuda.device_count() // 2
+    else:
+        gpu_count = torch.cuda.device_count()
+
     gpu_idx = torch.cuda.current_device()
-    gpu_count = torch.cuda.device_count()
     torch.cuda.set_device(gpu_idx)
 
     if model is None:
@@ -535,7 +542,7 @@ def main_cleval(model_path, backbone, config, result_dir, model):
 
         result_pred = result_to_clEval(bboxes)
         make_txt(result_pred, result_dir, img_name, dtype='pred')
-
+        # print(len([filename for filename in os.listdir(result_dir) if filename[-9:] == '_pred.txt']), len(total_imgs_path))
     # -----------------------------------------------------------------------------------------------------------------#
 
     gt_cl_dir = load_gt_cl_dir(config, data=test_set)
@@ -544,6 +551,10 @@ def main_cleval(model_path, backbone, config, result_dir, model):
        GT_BOX_TYPE = "LTRB"
     else:
        GT_BOX_TYPE = "QUAD"
+
+    while len([filename for filename in os.listdir(result_dir) if filename[-9:] == '_pred.txt']) != len(total_imgs_path):
+        # print(f'flag{len([filename for filename in os.listdir(result_dir) if filename[-9:] == "_pred.txt"])}')
+        continue
 
     metrics = clEval.main(gt_cl_dir, result_dir, GT_BOX_TYPE=GT_BOX_TYPE,PRED_BOX_TYPE="QUAD")
 
@@ -555,16 +566,16 @@ def main_cleval(model_path, backbone, config, result_dir, model):
 
     return metrics
 
-def cal_eval(config, data, res_dir_name, opt):
+def cal_eval(config, data, res_dir_name, opt, mode):
     evaluator = DetectionIoUEvaluator()
     # import ipdb; ipdb.set_trace()
     test_config = DotDict(config.test[data])
     res_dir = os.path.join(os.path.join("exp", args.yaml), "{}".format(res_dir_name))
 
     if opt == "iou_eval":
-        main_eval(config.test.trained_model, config.train.backbone, test_config, evaluator, res_dir, buffer=None, model=None)
+        main_eval(config.test.trained_model, config.train.backbone, test_config, evaluator, res_dir, buffer=None, model=None, mode=mode)
     elif opt == "cl_eval":
-        main_cleval(config.test.trained_model, config.train.backbone, test_config, res_dir, model=None)
+        main_cleval(config.test.trained_model, config.train.backbone, test_config, res_dir, model=None, mode=mode)
     else:
         print("not evaluation")
 
@@ -591,8 +602,8 @@ if __name__ == "__main__":
         wandb.config.update(config)
 
     val_result_dir_name = args.yaml
-    cal_eval(config, "icdar2013", val_result_dir_name + '-ic13-iou', opt="iou_eval")
-    cal_eval(config, "icdar2013", val_result_dir_name + '-ic13-cl', opt="cl_eval")
-    #cal_eval(config, "icdar2015", "resnet-en-ko-ai-15-iou", opt="iou_eval")
-    cal_eval(config, "prescription", val_result_dir_name + '-pre-cl', opt="cl_eval")
+    # cal_eval(config, "icdar2013", val_result_dir_name + '-ic13-iou', opt="iou_eval", mode=None)
+    # cal_eval(config, "icdar2013", val_result_dir_name + '-ic13-cl', opt="cl_eval", mode=None)
+    #cal_eval(config, "icdar2015", "resnet-en-ko-ai-15-iou", opt="iou_eval", mode=None)
+    cal_eval(config, "prescription", val_result_dir_name + '-pre-cl', opt="cl_eval", mode=None)
 
