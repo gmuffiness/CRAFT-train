@@ -66,9 +66,9 @@ def saveInput(imagename, vis_dir, image, region_scores, affinity_scores, confide
 
     outpath = vis_dir + f"/{imagename}_input.jpg"
     if not os.path.exists(os.path.dirname(outpath)):
-        os.makedirs(os.path.dirname(outpath))
+        os.makedirs(os.path.dirname(outpath), exist_ok=True)
     cv2.imwrite(outpath, output)
-    print(f'Logging train input into {outpath}')
+    # print(f'Logging train input into {outpath}')
 
 
 def saveImage(imagename, vis_dir, image, bboxes, affi_bboxes, region_scores, affinity_scores, confidence_mask):
@@ -77,6 +77,9 @@ def saveImage(imagename, vis_dir, image, bboxes, affi_bboxes, region_scores, aff
     if len(bboxes) > 0:
         for i in range(len(bboxes)):
             _bboxes = np.int32(bboxes[i])
+            word_box_min = np.min(_bboxes.reshape(-1, 2), axis=0)
+            word_box_max = np.max(_bboxes.reshape(-1, 2), axis=0)
+            cv2.rectangle(output_image, word_box_min, word_box_max, (0, 255, 0))
             for j in range(_bboxes.shape[0]):
                 cv2.polylines(output_image, [np.reshape(_bboxes[j], (-1, 1, 2))], True, (0, 0, 255))
 
@@ -102,9 +105,9 @@ def saveImage(imagename, vis_dir, image, bboxes, affi_bboxes, region_scores, aff
         imagename = imagename[0].split('/')[-1][:-4]
 
     output = np.concatenate([output_image, heat_map, confidence_mask_gray], axis=1)
-    outpath = vis_dir + f"/{imagename}_original.jpg"
+    outpath = vis_dir + f"/{imagename}.jpg"
     if not os.path.exists(os.path.dirname(outpath)):
-        os.makedirs(os.path.dirname(outpath))
+        os.makedirs(os.path.dirname(outpath), exist_ok=True)
 
     cv2.imwrite(outpath, output)
     print(f'Logging original image into {outpath}')

@@ -3,6 +3,7 @@ import re
 import itertools
 import random
 import json
+import math
 
 import numpy as np
 import scipy.io as scio
@@ -542,6 +543,19 @@ class AiHubDataset(CraftBaseDataset):
 
         return char_bbox
 
+    def cal_angle(self, v1):
+        theta = np.arccos(min(1, v1[0] / (np.linalg.norm(v1) + 10e-8)))
+        return 2 * math.pi - theta if v1[1] < 0 else theta
+
+    def clockwise_sort(self, points):
+        # return 4x2 [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] ndarray
+        v1, v2, v3, v4 = points
+        center = (v1 + v2 + v3 + v4) / 4
+        theta = np.array([self.cal_angle(v1 - center), self.cal_angle(v2 - center), \
+                          self.cal_angle(v3 - center), self.cal_angle(v4 - center)])
+        index = np.argsort(theta)
+        return np.array([v1, v2, v3, v4])[index, :]
+
     def load_img_gt_box(self, index):
 
         word_bboxes = []
@@ -593,7 +607,6 @@ class AiHubDataset(CraftBaseDataset):
             do_not_care_words,
             vertical_word,
         ) = self.load_img_gt_box(index)
-
         for i in range(len(do_not_care_bboxes)):
             cv2.fillPoly(confidence_mask, [np.int32(do_not_care_bboxes[i])], 0)
 
@@ -602,6 +615,7 @@ class AiHubDataset(CraftBaseDataset):
             affinity_score = np.zeros((img_h, img_w), dtype=np.float32)
             all_affinity_bbox = []
         else:
+            horizontal_text_bools = [not bool_val for bool_val in vertical_word]
             region_score = self.gaussian_builder.generate_region(
                 img_h,
                 img_w,
@@ -611,12 +625,11 @@ class AiHubDataset(CraftBaseDataset):
             (
                 affinity_score,
                 all_affinity_bbox,
-            ) = self.gaussian_builder.generate_affinity_ai(
+            ) = self.gaussian_builder.generate_affinity(
                 img_h,
                 img_w,
                 word_level_char_bbox,
-                vertical=vertical_word,
-                horizontal_text_bools=[True for _ in range(len(do_care_words))],
+                horizontal_text_bools=horizontal_text_bools,
             )
 
         return (

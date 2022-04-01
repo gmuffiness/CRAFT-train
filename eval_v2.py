@@ -335,35 +335,34 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model
     if not os.path.exists(result_dir):
         os.makedirs(result_dir, exist_ok=True)
 
-    # check buffer for distributed evaluation
-    assert all(v is None for v in buffer), 'Buffer already filled with another value'
-    # print(len(total_imgs_bboxes_gt)) # 500
-    # print('Current cuda device:', torch.cuda.current_device())
-    # print('Total gpu :', torch.cuda.device_count())
-    gpu_idx = torch.cuda.current_device()
-    gpu_count = torch.cuda.device_count()
-    torch.cuda.set_device(gpu_idx)
-
     test_set = config.test_data_dir.split("/")[-2].lower()
 
+    gpu_count = torch.cuda.device_count()
+    gpu_idx = torch.cuda.current_device()
+    torch.cuda.set_device(gpu_idx)
+
     # load model
-    # if backbone == "vgg":
-    #     model = CRAFT()  # initialize
-    # elif backbone == "resnet":
-    #     model = UNetWithResnet50Encoder()
-    # else:
-    #     raise Exception('Undefined architecture')
-    #
-    # print("Loading weights from checkpoint (" + model_path + ")")
-    # net_param = torch.load(model_path, map_location=f'cuda:{gpu_idx}')
-    # model.load_state_dict(copyStateDict(net_param["craft"]))
-    #
-    # if config.cuda:
-    #     model = model.cuda()
-    #     # model = torch.nn.DataParallel(model)
-    #     cudnn.benchmark = False
-    #
-    # model.eval()
+    if model is None:
+        if backbone == "vgg":
+            model = CRAFT()  # initialize
+        elif backbone == "resnet":
+            model = UNetWithResnet50Encoder()
+        else:
+            raise Exception('Undefined architecture')
+
+        print("Loading weights from checkpoint (" + model_path + ")")
+        net_param = torch.load(model_path, map_location=f'cuda:{gpu_idx}')
+        model.load_state_dict(copyStateDict(net_param["craft"]))
+
+        if config.cuda:
+            model = model.cuda()
+            # model = torch.nn.DataParallel(model)
+            cudnn.benchmark = False
+    else:
+        # check buffer for distributed evaluation
+        assert all(v is None for v in buffer), 'Buffer already filled with another value'
+
+    model.eval()
     # model = model.cuda()
     # cudnn.benchmark = False
     # ------------------------------------------------------------------------------------------------------------------#
@@ -378,8 +377,8 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model
         piece_imgs_path = total_imgs_path[gpu_idx * slice_idx: (gpu_idx + 1) * slice_idx]
 
     # -----------------------------------------------------------------------------------------------------------------#
-    # total_img_bboxes_pre = []
-    for k, img_path in enumerate(piece_imgs_path):
+    total_img_bboxes_pre = []
+    for k, img_path in enumerate(tqdm(piece_imgs_path)):
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         single_img_bbox = []
@@ -400,8 +399,9 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model
         for box in bboxes:
             box_info = {"points": box, "text": "###", "ignore": False}
             single_img_bbox.append(box_info)
-        # total_img_bboxes_pre.append(single_img_bbox)
-        buffer[gpu_idx * slice_idx + k] = single_img_bbox
+        total_img_bboxes_pre.append(single_img_bbox)
+        if buffer is not None:
+            buffer[gpu_idx * slice_idx + k] = single_img_bbox
         # -------------------------------------------------------------------------------------------------------------#
 
         if config.vis_opt:
@@ -418,10 +418,11 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model
     # ------------------------------------------------------------------------------------------------------------------#
 
     # wait until buffer is full filled
-    while None in buffer:
-        continue
-    assert all(v is not None for v in buffer), 'Buffer not filled'
-    total_img_bboxes_pre = buffer
+    if buffer is not None:
+        while None in buffer:
+            continue
+        assert all(v is not None for v in buffer), 'Buffer not filled'
+        total_img_bboxes_pre = buffer
 
     # print('Predict bbox points completed.')
     results = []
@@ -457,33 +458,32 @@ def main_cleval(model_path, backbone, config, result_dir, model):
     if not os.path.exists(result_dir):
         os.makedirs(result_dir, exist_ok=True)
 
-    # print('Current cuda device:', torch.cuda.current_device())
-    # print('Total gpu :', torch.cuda.device_count())
+    test_set = config.test_data_dir.split("/")[-2].lower()
+
     gpu_idx = torch.cuda.current_device()
     gpu_count = torch.cuda.device_count()
     torch.cuda.set_device(gpu_idx)
 
-    test_set = config.test_data_dir.split("/")[-2].lower()
+    if model is None:
+        # load model
+        if backbone == "vgg":
+            model = CRAFT()  # initialize
+        elif backbone == "resnet":
+            model = UNetWithResnet50Encoder()
+        else:
+            raise Exception('Undefined architecture')
 
-    # load model
-    # if backbone == "vgg":
-    #     model = CRAFT()  # initialize
-    # elif backbone == "resnet":
-    #     model = UNetWithResnet50Encoder()
-    # else:
-    #     raise Exception('Undefined architecture')
-    #
-    # print("Loading weights from checkpoint (" + model_path + ")")
-    # net_param = torch.load(model_path, map_location=f'cuda:{gpu_idx}')
-    # try:
-    #     model.load_state_dict(copyStateDict(net_param["craft"]))
-    # except :
-    #     model.load_state_dict(copyStateDict(net_param))
-    #
-    # if config.cuda:
-    #     model = model.cuda()
-    #     # model = torch.nn.DataParallel(model)
-    #     cudnn.benchmark = False
+        print("Loading weights from checkpoint (" + model_path + ")")
+        net_param = torch.load(model_path, map_location=f'cuda:{gpu_idx}')
+        try:
+            model.load_state_dict(copyStateDict(net_param["craft"]))
+        except :
+            model.load_state_dict(copyStateDict(net_param))
+
+        if config.cuda:
+            model = model.cuda()
+            # model = torch.nn.DataParallel(model)
+            cudnn.benchmark = False
 
     model.eval()
     # model = model.cuda()
@@ -500,7 +500,7 @@ def main_cleval(model_path, backbone, config, result_dir, model):
         piece_imgs_path = total_imgs_path[gpu_idx * slice_idx: (gpu_idx + 1) * slice_idx]
 
     # -----------------------------------------------------------------------------------------------------------------#
-    # total_img_bboxes_pre = []
+
     for k, img_path in enumerate(piece_imgs_path):
 
         image = cv2.imread(img_path)
@@ -562,9 +562,9 @@ def cal_eval(config, data, res_dir_name, opt):
     res_dir = os.path.join(os.path.join("exp", args.yaml), "{}".format(res_dir_name))
 
     if opt == "iou_eval":
-        main_eval(config.test.trained_model, config.train.backbone, test_config, evaluator, res_dir, buffer=None)
+        main_eval(config.test.trained_model, config.train.backbone, test_config, evaluator, res_dir, buffer=None, model=None)
     elif opt == "cl_eval":
-        main_cleval(config.test.trained_model, config.train.backbone, test_config, res_dir)
+        main_cleval(config.test.trained_model, config.train.backbone, test_config, res_dir, model=None)
     else:
         print("not evaluation")
 

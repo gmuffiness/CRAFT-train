@@ -441,15 +441,15 @@ def main_worker(gpu, port, ngpus_per_node, config, buffer_dict, exp_name):
         world_size=ngpus_per_node,
         rank=gpu)
 
-    batch_size = int(config["train"]["batch_size"] / ngpus_per_node)
-    config["train"]["batch_size"] = batch_size
-    config = DotDict(config)
-
-    if gpu == 0 and config.wandb_opt:
+    if gpu == 0 and config["wandb_opt"]:
         # Apply config to wandb
         # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
         wandb.init(project="craft-stage1", entity="gmuffiness", name=exp_name)
         wandb.config.update(config)
+
+    batch_size = int(config["train"]["batch_size"] / ngpus_per_node)
+    config["train"]["batch_size"] = batch_size
+    config = DotDict(config)
 
     # Start train
     trainer = Trainer(config, gpu)
