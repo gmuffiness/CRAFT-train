@@ -15,18 +15,22 @@ import h5py
 from data import imgproc
 from data.gaussian import GaussianBuilder
 from data.imgaug import (
-    rescale_ic15,
+    rescale,
     random_resize_crop_synth,
     random_resize_crop,
     random_crop_with_bbox,
     random_horizontal_flip,
     random_rotate,
     random_scale,
+    random_crop
 )
 from data.pseudo_label.make_charbox import PseudoCharBoxBuilder
 from utils.util import saveInput, saveImage
 from data.boxEnlarge import enlargebox
 from utils.decorator_wraps import time_printer
+from shapely.geometry import Polygon
+from shapely.geometry import box
+from torchvision.transforms import RandomResizedCrop, RandomCrop
 
 
 def hierarchical_dataset(root, config, select_data="/"):
@@ -93,6 +97,8 @@ class CraftBaseDataset(Dataset):
             random.seed(0)
             self.idx = random.sample(range(0, len(self.img_names)), self.sample)
 
+        self.pre_crop_area = []
+
     def augment_image(
         self, image, region_score, affinity_score, confidence_mask, word_level_char_bbox
     ):
@@ -118,13 +124,28 @@ class CraftBaseDataset(Dataset):
                     augment_targets, self.output_size
                 )
             elif self.aug.random_crop.version == "random_resize_crop":
+
+                if len(self.pre_crop_area) > 0 :
+                    pre_crop_area = self.pre_crop_area
+                else:
+                    pre_crop_area = None
+
                 augment_targets = random_resize_crop(
                     augment_targets,
                     self.aug.random_crop.scale,
                     self.aug.random_crop.ratio,
                     self.output_size,
                     self.aug.random_crop.rnd_threshold,
+                    pre_crop_area
                 )
+
+
+            elif self.aug.random_crop.version == "random_crop":
+                augment_targets = random_crop(
+                    augment_targets,
+                    self.output_size,
+                )
+
             else:
                 assert "Undefined RandomCrop version"
 
@@ -818,7 +839,7 @@ class ICDAR2015(CraftBaseDataset):
             self.img_gt_box_dir, "gt_%s.txt" % os.path.splitext(img_name)[0]
         )
         word_bboxes, words = self.load_img_gt_box(img_gt_box_path)
-        image, word_bboxes = rescale_ic15(image, word_bboxes)
+        image, word_bboxes = rescale(image, word_bboxes)
         img_h, img_w, _ = image.shape
 
         query_idx = int(self.img_names[index].split(".")[0].split("_")[1])
@@ -860,3 +881,228 @@ class ICDAR2015(CraftBaseDataset):
             word_level_char_bbox,
             words,
         )
+
+
+
+class PreScripTion(CraftBaseDataset):
+    def __init__(
+            self,
+            output_size,
+            data_dir,
+            mean,
+            variance,
+            gauss_init_size,
+            gauss_sigma,
+            enlarge_region,
+            enlarge_affinity,
+            aug,
+            vis_test_dir,
+            vis_opt,
+            watershed_param,
+            pseudo_vis_opt,
+            saved_gt_dir=None,
+            sample=-1
+
+
+    ):
+
+        super().__init__(
+            output_size,
+            data_dir,
+            saved_gt_dir,
+            mean,
+            variance,
+            gauss_init_size,
+            gauss_sigma,
+            enlarge_region,
+            enlarge_affinity,
+            aug,
+            vis_test_dir,
+            vis_opt,
+            sample,
+        )
+
+        self.output_size = output_size
+        self.data_dir = data_dir
+        self.gaussian_builder = GaussianBuilder(
+            gauss_init_size, gauss_sigma, enlarge_region, enlarge_affinity
+        )
+        self.pseudo_charbox_builder = PseudoCharBoxBuilder(
+            watershed_param, vis_test_dir, pseudo_vis_opt, self.gaussian_builder
+        )
+        self.aug = aug
+        self.vis_test_dir = vis_test_dir
+        self.vis_opt = vis_opt
+        self.pseudo_vis_opt = pseudo_vis_opt
+        self.vis_index = [189, 41, 723, 251, 232, 115, 634, 951, 247, 25, 400, 704, 619, 305, 423, 20, 31]
+
+        self.img_dir = data_dir
+        self.img_names = [i for i in os.listdir(self.img_dir) if i.endswith(".jpg")]
+
+
+
+    def update_model(self, net):
+        self.net = net
+
+    def update_device(self, gpu):
+        self.gpu = gpu
+
+    def check_label(self, box):
+
+        check = True
+        w = max(
+            int(np.linalg.norm(box[0] - box[1])), int(np.linalg.norm(box[2] - box[3]))
+        )
+        h = max(
+            int(np.linalg.norm(box[0] - box[3])), int(np.linalg.norm(box[1] - box[2]))
+        )
+        try:
+            word_ratio = h / w
+        except:
+            check = False
+
+        return check
+
+    def load_img_gt_box(self, img_gt_box_path):
+        lines = open(img_gt_box_path, encoding="utf-8").readlines()
+        word_bboxes = []
+        words = []
+        for line in lines:
+
+            box_info, word = line.strip().encode("utf-8").decode("utf-8-sig").split("##::")
+            box_info = box_info.strip().encode("utf-8").decode("utf-8-sig").split(" ")
+            box_points = [int(box_info[i]) for i in range(8)]
+            box_points = np.array(box_points, np.float32).reshape(4, 2)
+
+            if word == "dnc":
+                words.append("###")
+                word_bboxes.append(box_points)
+                continue
+            word_bboxes.append(box_points)
+            words.append(word)
+        return np.array(word_bboxes), words
+
+    def load_data(self, index):
+
+        img_name = self.img_names[index]
+        img_path = os.path.join(self.img_dir, img_name)
+        image = cv2.imread(img_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        img_gt_box_path = os.path.join(
+            self.img_dir, "%s_label.txt" % os.path.splitext(img_name)[0]
+        )
+        word_bboxes, words = self.load_img_gt_box(img_gt_box_path)  # shape : (Number of word bbox, 4, 2)
+
+        # rescale
+        image, word_bboxes = rescale(image, word_bboxes, target_size=2560)
+        confidence_mask = np.ones((image.shape[0], image.shape[1]), np.float32)
+
+        word_level_char_bbox = []
+        do_care_words = []
+        horizontal_text_bools = []
+
+        if len(word_bboxes) == 0:
+            return image, word_level_char_bbox, do_care_words, confidence_mask
+
+
+        #------------------------------------------------------------------------------------#
+
+
+        pre_crop_top, pre_crop_left, pre_crop_width,pre_crop_height  \
+            = RandomResizedCrop.get_params(Image.fromarray(image), scale=self.aug.random_crop.scale,
+                                                     ratio=self.aug.random_crop.ratio)
+
+        self.pre_crop_area = []
+        self.pre_crop_area.extend([pre_crop_top,pre_crop_left,pre_crop_width,pre_crop_height])
+
+
+        # shapely.geometry.box(minx, miny, maxx, maxy, ccw=True)
+        pre_crop_area = box(pre_crop_left, pre_crop_top,
+                            pre_crop_left+pre_crop_width, pre_crop_top+pre_crop_height, ccw=False)
+
+        # ------------------------------------------------------------------------------------#
+
+        for i in range(len(word_bboxes)):
+            # TODO: fill confidence mask 할 때, 더 낮은 값이 들어가도록 수정?
+            if words[i] == "###" or len(words[i].strip()) == 0:
+                cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], 0)
+                continue
+
+        # ------------------------------------------------------------------------------#
+
+            word_poly = Polygon(word_bboxes[i])
+
+            if word_poly.area == 0 or pre_crop_area.intersects(word_poly) == False :
+                continue
+
+            # ------------------------------------------------------------------------------#
+            pseudo_char_bbox, confidence, horizontal_text_bool = self.pseudo_charbox_builder.build_char_box(
+                self.net, self.gpu, image, word_bboxes[i], words[i], img_name=img_name
+            )
+
+            cv2.fillPoly(confidence_mask, [np.int32(word_bboxes[i])], confidence)
+            do_care_words.append(words[i])
+            word_level_char_bbox.append(pseudo_char_bbox)
+            horizontal_text_bools.append(horizontal_text_bool)
+
+        return image, word_level_char_bbox, do_care_words, confidence_mask, horizontal_text_bools
+
+    def make_gt_score(self, index):
+        """
+        Make region, affinity scores using pseudo character-level GT bounding box
+        word_level_char_bbox's shape : [word_num, [char_num_in_one_word, 4, 2]]
+        :rtype region_score: np.float32
+        :rtype affinity_score: np.float32
+        :rtype confidence_mask: np.float32
+        :rtype word_level_char_bbox: np.float32
+        :rtype words: list
+        """
+        (image, word_level_char_bbox, words, confidence_mask, horizontal_text_bools) = self.load_data(index)
+        img_h, img_w, _ = image.shape
+
+        if len(word_level_char_bbox) == 0:
+            region_score = np.zeros((img_h, img_w), dtype=np.float32)
+            affinity_score = np.zeros((img_h, img_w), dtype=np.float32)
+            all_affinity_bbox = []
+        else:
+            region_score = self.gaussian_builder.generate_region(
+                img_h, img_w, word_level_char_bbox, horizontal_text_bools
+            )
+            affinity_score, all_affinity_bbox = self.gaussian_builder.generate_affinity(
+                img_h, img_w, word_level_char_bbox, horizontal_text_bools
+            )
+
+        return (
+            image,
+            region_score,
+            affinity_score,
+            confidence_mask,
+            word_level_char_bbox,
+            all_affinity_bbox,
+            words,
+        )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

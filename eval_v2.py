@@ -321,7 +321,126 @@ def load_gt_cl_dir(config, data):
     return gt_cl_dir
 
 
-def main_eval(model_path, backbone, config, evaluator, result_dir, buffer):
+# def main_eval(model_path, backbone, config, evaluator, result_dir, buffer=None):
+#
+#     # test 폴더에 대한 학습된 모델의 f1-score를 계산
+#     # test 폴더에 대한 model의 output 시각화
+#     # TODO loss 까지 구할 수 있도록?
+#
+#     # model_path : 학습된 모델의 저장 경로
+#     # config : test에 필요한 configuration, dict type
+#     # evaluator : test function
+#
+#     # check buffer for distributed evaluation
+#     assert all(v is None for v in buffer), 'Buffer already filled with another value'
+#     # print(len(total_imgs_bboxes_gt)) # 500
+#     # print('Current cuda device:', torch.cuda.current_device())
+#     # print('Total gpu :', torch.cuda.device_count())
+#     gpu_idx = torch.cuda.current_device()
+#     gpu_count = torch.cuda.device_count()
+#     torch.cuda.set_device(gpu_idx)
+#
+#     if not os.path.exists(result_dir):
+#         os.makedirs(result_dir)
+#     test_set = config.test_data_dir.split("/")[-2].lower()
+#
+#     # load model
+#     if backbone == "vgg":
+#         model = CRAFT()  # initialize
+#     elif backbone == "resnet":
+#         model = UNetWithResnet50Encoder()
+#     else:
+#         raise Exception('Undefined architecture')
+#
+#     print("Loading weights from checkpoint (" + model_path + ")")
+#     net_param = torch.load(model_path)
+#     model.load_state_dict(copyStateDict(net_param["craft"]))
+#
+#     if config.cuda:
+#         model = model.cuda()
+#         # model = torch.nn.DataParallel(model)
+#         cudnn.benchmark = False
+#
+#     model.eval()
+#     # ------------------------------------------------------------------------------------------------------------------#
+#
+#     total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_iou(test_set, config)
+#     slice_idx = len(total_imgs_bboxes_gt) // gpu_count
+#
+#     # last gpu
+#     if gpu_idx == gpu_count - 1:
+#         piece_imgs_path = total_imgs_path[gpu_idx * slice_idx:]
+#     else:
+#         piece_imgs_path = total_imgs_path[gpu_idx * slice_idx: (gpu_idx + 1) * slice_idx]
+#
+#     # -----------------------------------------------------------------------------------------------------------------#
+#     # total_img_bboxes_pre = []
+#     for k, img_path in enumerate(piece_imgs_path):
+#         image = cv2.imread(img_path)
+#         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+#         single_img_bbox = []
+#         bboxes, polys, score_text = test_net(
+#             model,
+#             image,
+#             config.text_threshold,
+#             config.link_threshold,
+#             config.low_text,
+#             config.cuda,
+#             config.poly,
+#             config.canvas_size,
+#             config.mag_ratio,
+#         )
+#
+#         # -------------------------------------------------------------------------------------------------------------#
+#
+#         for box in bboxes:
+#             box_info = {"points": box, "text": "###", "ignore": False}
+#             single_img_bbox.append(box_info)
+#         # total_img_bboxes_pre.append(single_img_bbox)
+#         buffer[gpu_idx * slice_idx + k] = single_img_bbox
+#         # -------------------------------------------------------------------------------------------------------------#
+#
+#         if config.vis_opt:
+#             viz_test(
+#                 image,
+#                 score_text,
+#                 pre_box=polys,
+#                 gt_box=total_imgs_bboxes_gt[k],
+#                 img_name=img_path,
+#                 result_dir=result_dir,
+#                 test_folder_name=test_set,
+#             )
+#
+#     # ------------------------------------------------------------------------------------------------------------------#
+#     # wait until buffer is full filled
+#     while None in buffer:
+#         continue
+#     assert all(v is not None for v in buffer), 'Buffer not filled'
+#     total_img_bboxes_pre = buffer
+#
+#     # print('Predict bbox points completed.')
+#     results = []
+#     error_idx = []
+#     for i, (gt, pred) in enumerate(zip(total_imgs_bboxes_gt, total_img_bboxes_pre)):
+#         perSampleMetrics_dict = evaluator.evaluate_image(gt, pred)
+#         results.append(perSampleMetrics_dict)
+#         # if perSampleMetrics_dict["detCare"] != perSampleMetrics_dict["gtCare"]:
+#         #     error_idx.append(str(i))
+#     metrics = evaluator.combine_results(results)
+#     print(metrics)
+#
+#
+#     # save result
+#     with open(os.path.join(result_dir,"result.txt"), "w") as f:
+#         f.write(json.dumps(metrics))
+#
+#     return metrics
+#
+#
+
+
+
+def main_eval(model_path, backbone, config, evaluator, result_dir):
 
     # test 폴더에 대한 학습된 모델의 f1-score를 계산
     # test 폴더에 대한 model의 output 시각화
@@ -331,14 +450,7 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer):
     # config : test에 필요한 configuration, dict type
     # evaluator : test function
 
-    # check buffer for distributed evaluation
-    assert all(v is None for v in buffer), 'Buffer already filled with another value'
-    # print(len(total_imgs_bboxes_gt)) # 500
-    # print('Current cuda device:', torch.cuda.current_device())
-    # print('Total gpu :', torch.cuda.device_count())
-    gpu_idx = torch.cuda.current_device()
-    gpu_count = torch.cuda.device_count()
-    torch.cuda.set_device(gpu_idx)
+
 
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
@@ -365,17 +477,12 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer):
     # ------------------------------------------------------------------------------------------------------------------#
 
     total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_iou(test_set, config)
-    slice_idx = len(total_imgs_bboxes_gt) // gpu_count
 
-    # last gpu
-    if gpu_idx == gpu_count - 1:
-        piece_imgs_path = total_imgs_path[gpu_idx * slice_idx:]
-    else:
-        piece_imgs_path = total_imgs_path[gpu_idx * slice_idx: (gpu_idx + 1) * slice_idx]
+
 
     # -----------------------------------------------------------------------------------------------------------------#
-    # total_img_bboxes_pre = []
-    for k, img_path in enumerate(piece_imgs_path):
+    total_img_bboxes_pre = []
+    for k, img_path in enumerate(total_imgs_path):
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         single_img_bbox = []
@@ -396,8 +503,7 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer):
         for box in bboxes:
             box_info = {"points": box, "text": "###", "ignore": False}
             single_img_bbox.append(box_info)
-        # total_img_bboxes_pre.append(single_img_bbox)
-        buffer[gpu_idx * slice_idx + k] = single_img_bbox
+        total_img_bboxes_pre.append(single_img_bbox)
         # -------------------------------------------------------------------------------------------------------------#
 
         if config.vis_opt:
@@ -413,10 +519,7 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer):
 
     # ------------------------------------------------------------------------------------------------------------------#
     # wait until buffer is full filled
-    while None in buffer:
-        continue
-    assert all(v is not None for v in buffer), 'Buffer not filled'
-    total_img_bboxes_pre = buffer
+
 
     # print('Predict bbox points completed.')
     results = []
@@ -438,6 +541,7 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer):
 
 
 
+
 # NOTE
 def main_cleval(model_path, backbone, config, result_dir):
 
@@ -452,9 +556,9 @@ def main_cleval(model_path, backbone, config, result_dir):
     # print(len(total_imgs_bboxes_gt)) # 500
     # print('Current cuda device:', torch.cuda.current_device())
     # print('Total gpu :', torch.cuda.device_count())
-    gpu_idx = torch.cuda.current_device()
-    gpu_count = torch.cuda.device_count()
-    torch.cuda.set_device(gpu_idx)
+    # gpu_idx = torch.cuda.current_device()
+    # gpu_count = torch.cuda.device_count()
+    # torch.cuda.set_device(gpu_idx)
 
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
@@ -484,17 +588,17 @@ def main_cleval(model_path, backbone, config, result_dir):
     # ------------------------------------------------------------------------------------------------------------------#
 
     total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_cl(test_set, config)
-    slice_idx = len(total_imgs_bboxes_gt) // gpu_count
+    #slice_idx = len(total_imgs_bboxes_gt) // gpu_count
 
-    # last gpu
-    if gpu_idx == gpu_count - 1:
-        piece_imgs_path = total_imgs_path[gpu_idx * slice_idx:]
-    else:
-        piece_imgs_path = total_imgs_path[gpu_idx * slice_idx: (gpu_idx + 1) * slice_idx]
+    # # last gpu
+    # if gpu_idx == gpu_count - 1:
+    #     piece_imgs_path = total_imgs_path[gpu_idx * slice_idx:]
+    # else:
+    #     piece_imgs_path = total_imgs_path[gpu_idx * slice_idx: (gpu_idx + 1) * slice_idx]
 
     # -----------------------------------------------------------------------------------------------------------------#
     # total_img_bboxes_pre = []
-    for k, img_path in enumerate(piece_imgs_path):
+    for k, img_path in enumerate(total_imgs_path):
 
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)

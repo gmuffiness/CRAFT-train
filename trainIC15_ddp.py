@@ -8,12 +8,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import ConcatDataset
 import wandb
 import yaml
 
 from config.load_config import load_yaml, DotDict
-from data.dataset import SynthTextDataSet, ICDAR2015
-from data.dataset_prescrip import PreScripTion
+from data.dataset import SynthTextDataSet, ICDAR2015, PreScripTion, SynthTextDataSet_KR, hierarchical_dataset
 from eval_v2 import main_eval, main_cleval
 from loss.mseloss import Maploss, Maploss_v2, Maploss_v3
 from model.craft import CRAFT
@@ -32,34 +32,54 @@ class Trainer(object):
 
     def get_synth_loader(self):
 
-        synth_dataset = SynthTextDataSet(
-            output_size=self.config.train.data.output_size,
-            data_dir=self.config.data_dir.synthtext,
-            saved_gt_dir=self.config.data_dir.synthtext_gt,
-            mean=self.config.train.data.mean,
-            variance=self.config.train.data.variance,
-            gauss_init_size=self.config.train.data.gauss_init_size,
-            gauss_sigma=self.config.train.data.gauss_sigma,
-            enlarge_region=self.config.train.data.enlarge_region,
-            enlarge_affinity=self.config.train.data.enlarge_affinity,
-            aug=self.config.train.data.syn_aug,
-            vis_test_dir=self.config.vis_test_dir,
-            vis_opt=self.config.train.data.vis_opt,
-            sample=self.config.train.data.syn_sample,
-        )
+        total_syn_dataset = []
 
-        synth_sampler = torch.utils.data.distributed.DistributedSampler(synth_dataset)
-        synth_loader = torch.utils.data.DataLoader(
-            synth_dataset,
-            batch_size=self.config.train.batch_size//5,
+        if "synthtext" in self.config.train.syn_dataset:
+            # eng-syn
+            synth_dataset = SynthTextDataSet(
+                output_size=self.config.train.data.output_size,
+                data_dir=self.config.data_dir.synthtext,
+                saved_gt_dir=None,
+                mean=self.config.train.data.mean,
+                variance=self.config.train.data.variance,
+                gauss_init_size=self.config.train.data.gauss_init_size,
+                gauss_sigma=self.config.train.data.gauss_sigma,
+                enlarge_region=self.config.train.data.enlarge_region,
+                enlarge_affinity=self.config.train.data.enlarge_affinity,
+                aug=self.config.train.data.syn_aug,
+                vis_test_dir=self.config.vis_test_dir,
+                vis_opt=self.config.train.data.vis_opt,
+                sample=self.config.train.data.syn_sample
+            )
+            total_syn_dataset.append(synth_dataset)
+
+
+        if "synthtext_kor" in self.config.train.syn_dataset:
+            # kor-syn
+            data_path_kr = self.config.data_dir.synthtext_kor
+            total_syn_dataset.extend(hierarchical_dataset(root=data_path_kr, config=self.config))
+
+        total_syn_dataset = ConcatDataset(total_syn_dataset)
+
+        syn_sampler = torch.utils.data.distributed.DistributedSampler(total_syn_dataset)
+
+
+
+        syn_loader = torch.utils.data.DataLoader(
+            total_syn_dataset,
+            batch_size=self.config.train.batch_size // 5,
+            #batch_size=2,
             shuffle=False,
             num_workers=self.config.train.num_workers,
-            sampler=synth_sampler,
-            drop_last=False,
+            sampler=syn_sampler,
+            drop_last=True,
             pin_memory=True,
+            # multiprocessing_context=mp_context,
         )
 
-        return synth_loader
+        return syn_loader
+
+
 
     def get_icdar_dataset(self):
 
@@ -87,18 +107,22 @@ class Trainer(object):
 
     def get_presctip_dataset(self):
 
+
         presctip_dataset = PreScripTion(
             output_size=self.config.train.data.output_size,
             data_dir=self.config.data_dir.prescrip_train,
+            mean=self.config.train.data.mean,
+            variance=self.config.train.data.variance,
             gauss_init_size=self.config.train.data.gauss_init_size,
             gauss_sigma=self.config.train.data.gauss_sigma,
             enlarge_region=self.config.train.data.enlarge_region,
             enlarge_affinity=self.config.train.data.enlarge_affinity,
-            watershed_ver=self.config.train.data.watershed_version,
+            watershed_param=self.config.train.data.watershed,
             aug=self.config.train.data.prescrip_aug,
             vis_test_dir=self.config.vis_test_dir,
             vis_opt=self.config.train.data.vis_opt,
-            pseudo_vis_opt=self.config.train.data.pseudo_vis_opt,
+            pseudo_vis_opt=self.config.train.data.pseudo_vis_opt
+
         )
 
         return presctip_dataset
@@ -156,9 +180,9 @@ class Trainer(object):
         if self.config.wandb_opt:
             wandb.log(
                 {
-                    "{} Recall".format(dataset): np.round(metrics["recall"], 3),
-                    "{} Precision".format(dataset): np.round(metrics["precision"], 3),
-                    "{} F1-score".format(dataset): np.round(metrics["hmean"], 3),
+                    "{} iou Recall".format(dataset): np.round(metrics["recall"], 3),
+                    "{} iou Precision".format(dataset): np.round(metrics["precision"], 3),
+                    "{} iou F1-score".format(dataset): np.round(metrics["hmean"], 3),
                 }
             )
 
@@ -181,9 +205,9 @@ class Trainer(object):
         if self.config.wandb_opt:
             wandb.log(
                 {
-                    "{} Recall".format(dataset): np.round(metrics["recall"], 3),
-                    "{} Precision".format(dataset): np.round(metrics["precision"], 3),
-                    "{} F1-score".format(dataset): np.round(metrics["hmean"], 3),
+                    "{} cl Recall".format(dataset): np.round(metrics["recall"], 3),
+                    "{} cl Precision".format(dataset): np.round(metrics["precision"], 3),
+                    "{} cl F1-score".format(dataset): np.round(metrics["hmean"], 3),
                 }
             )
 
@@ -195,7 +219,15 @@ class Trainer(object):
         # MODEL -------------------------------------------------------------------------------------------------------#
         # SUPERVISION model
         if self.config.data_dir.ic15_gt is None:
-            supervision_model = CRAFT(pretrained=True, amp=self.config.train.amp)
+
+            if self.config.train.backbone == "vgg":
+                supervision_model = CRAFT(pretrained=False, amp=self.config.train.amp)
+            elif self.config.train.backbone == "resnet":
+                supervision_model = UNetWithResnet50Encoder(pretrained=False, amp=self.config.train.amp)
+            else:
+                raise Exception('Undefined `architec`ture')
+
+
             # Only useful on half GPU train / half GPU supervision setting
             supervision_device = total_gpu_num // 2 + self.gpu
             if self.config.train.ckpt_path is not None:
@@ -208,7 +240,14 @@ class Trainer(object):
             supervision_model, supervision_device = None, None
 
         # TRAIN model
-        craft = CRAFT(pretrained=True, amp=self.config.train.amp)
+        if self.config.train.backbone == "vgg":
+            craft = CRAFT(pretrained=False, amp=self.config.train.amp)
+        elif self.config.train.backbone == "resnet":
+            craft = UNetWithResnet50Encoder(pretrained=False, amp=self.config.train.amp)
+        else:
+            raise Exception('Undefined `architec`ture')
+
+
         if self.config.train.ckpt_path is not None:
             craft.load_state_dict(copyStateDict(self.net_param['craft']))
 
@@ -222,18 +261,27 @@ class Trainer(object):
 
         trn_syn_loader = self.get_synth_loader()
         batch_syn = iter(trn_syn_loader)
-        trn_icdar_dataset = self.get_icdar_dataset()
-        if self.config.data_dir.ic15_gt is None:
-            trn_icdar_dataset.update_model(supervision_model)
-            trn_icdar_dataset.update_device(supervision_device)
 
-        trn_icdar15_sampler = torch.utils.data.distributed.DistributedSampler(trn_icdar_dataset)
-        trn_icdar_loader = torch.utils.data.DataLoader(
-            trn_icdar_dataset,
+
+
+        if self.config.train.real_dataset == 'prescription' :
+            trn_real_dataset = self.get_presctip_dataset()
+        elif self.config.train.real_dataset == 'icdar2015':
+            trn_real_dataset = self.get_icdar_dataset()
+        else:
+            raise Exception('Undefined dataset')
+
+        if self.config.data_dir.ic15_gt is None:
+            trn_real_dataset.update_model(supervision_model)
+            trn_real_dataset.update_device(supervision_device)
+
+        trn_real_sampler = torch.utils.data.distributed.DistributedSampler(trn_real_dataset)
+        trn_real_loader = torch.utils.data.DataLoader(
+            trn_real_dataset,
             batch_size=self.config.train.batch_size,
             shuffle=False,
             num_workers=self.config.train.num_workers,
-            sampler=trn_icdar15_sampler,
+            sampler=trn_real_sampler,
             drop_last=False,
             pin_memory=True,
         )
@@ -273,13 +321,13 @@ class Trainer(object):
 
         print("================================ Train start ================================")
         while train_step < whole_training_step:
-            trn_icdar15_sampler.set_epoch(train_step)
+            trn_real_sampler.set_epoch(train_step)
             for index, (
                 icdar_image,
                 icdar_region_label,
                 icdar_affi_label,
                 icdar_confidence_mask,
-            ) in enumerate(trn_icdar_loader):
+            ) in enumerate(trn_real_loader):
                 craft.train()
                 if train_step > 0 and train_step % self.config.train.lr_decay == 0:
                     update_lr_rate_step += 1
@@ -411,7 +459,7 @@ class Trainer(object):
                     break
             state_dict = craft.module.state_dict()
             supervision_model.load_state_dict(state_dict)
-            trn_icdar_dataset.update_model(supervision_model)
+            trn_real_dataset.update_model(supervision_model)
 
         # save last model
         if self.gpu == 0:
@@ -478,6 +526,7 @@ def main_worker(gpu, ngpus_per_node):
     if gpu == 0:
         # Apply config to wandb
         if config["wandb_opt"]:
+            #wandb.init(project="jm-test", entity="pingu", name=args.yaml)
             wandb.init(project="craft-icdar", entity="woans0104", name=args.yaml)
             wandb.config.update(config)
         print("-"*20+" Options "+"-"*20)

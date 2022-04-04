@@ -245,14 +245,14 @@ class PseudoCharBoxBuilder:
             )
             confidence = 0.5
 
-        # if self.pseudo_vis_opt and self.flag:
-        #     self.visualize_pseudo_label(
-        #         word_image,
-        #         region_score,
-        #         watershed_box,
-        #         pseudo_char_bbox,
-        #         img_name,
-        #     )
+        if self.pseudo_vis_opt and self.flag:
+            self.visualize_pseudo_label(
+                word_image,
+                region_score,
+                watershed_box,
+                pseudo_char_bbox,
+                img_name,
+            )
 
         if len(pseudo_char_bbox) != 0:
             index = np.argsort(pseudo_char_bbox[:, 0, 0])

@@ -8,7 +8,7 @@ from torchvision.transforms.functional import resized_crop, crop
 from torchvision.transforms import RandomResizedCrop, RandomCrop
 from torchvision.transforms import InterpolationMode
 
-def rescale_ic15(img, bboxes, target_size=2240):
+def rescale(img, bboxes, target_size=2240):
     h, w = img.shape[0:2]
     scale = target_size / max(h,w)
     img = cv2.resize(img, dsize=None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
@@ -81,7 +81,7 @@ def random_resize_crop_ai(augment_targets, scale, ratio, size):
 
 
 
-def random_resize_crop(augment_targets, scale, ratio, size, threshold):
+def random_resize_crop(augment_targets, scale, ratio, size, threshold, pre_crop_area=None):
     # --------------------------------------------------------------------------------------------------------------#
     image, region_score, affinity_score, confidence_mask = augment_targets
 
@@ -90,11 +90,16 @@ def random_resize_crop(augment_targets, scale, ratio, size, threshold):
     affinity_score = Image.fromarray(affinity_score)
     confidence_mask = Image.fromarray(confidence_mask)
 
+    #------------------------------#
+    if pre_crop_area != None :
+        i, j, h, w = pre_crop_area
 
-    if random.random() < threshold:
-        i, j, h, w = RandomResizedCrop.get_params(image, scale=scale, ratio=ratio)
     else:
-        i, j, h, w = RandomResizedCrop.get_params(image, scale=(1.0,1.0), ratio=(1.0,1.0))
+        if random.random() < threshold:
+            i, j, h, w = RandomResizedCrop.get_params(image, scale=scale, ratio=ratio)
+        else:
+            i, j, h, w = RandomResizedCrop.get_params(image, scale=(1.0, 1.0), ratio=(1.0, 1.0))
+
 
 
     image = resized_crop(image, i, j, h, w, size=(size, size),
