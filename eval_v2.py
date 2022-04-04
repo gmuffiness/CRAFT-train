@@ -317,8 +317,10 @@ def load_gt_cl_dir(config, data):
     elif data == "prescription":
         gt_cl_dir = config.test_data_dir
     else:
+        gt_cl_dir = None
         print("no dataset")
     return gt_cl_dir
+
 
 
 # def main_eval(model_path, backbone, config, evaluator, result_dir, buffer=None):
@@ -440,7 +442,7 @@ def load_gt_cl_dir(config, data):
 
 
 
-def main_eval(model_path, backbone, config, evaluator, result_dir):
+def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model, mode):
 
     # test 폴더에 대한 학습된 모델의 f1-score를 계산
     # test 폴더에 대한 model의 output 시각화
@@ -450,39 +452,56 @@ def main_eval(model_path, backbone, config, evaluator, result_dir):
     # config : test에 필요한 configuration, dict type
     # evaluator : test function
 
-
-
     if not os.path.exists(result_dir):
-        os.makedirs(result_dir)
+        os.makedirs(result_dir, exist_ok=True)
+
     test_set = config.test_data_dir.split("/")[-2].lower()
 
-    # load model
-    if backbone == "vgg":
-        model = CRAFT()  # initialize
-    elif backbone == "resnet":
-        model = UNetWithResnet50Encoder()
+    if mode == 'weak_supervision':
+        gpu_count = torch.cuda.device_count() // 2
     else:
-        raise Exception('Undefined architecture')
+        gpu_count = torch.cuda.device_count()
+    gpu_idx = torch.cuda.current_device()
+    torch.cuda.set_device(gpu_idx)
 
-    print("Loading weights from checkpoint (" + model_path + ")")
-    net_param = torch.load(model_path)
-    model.load_state_dict(copyStateDict(net_param["craft"]))
+    # load model
+    if model is None:
+        if backbone == "vgg":
+            model = CRAFT()  # initialize
+        elif backbone == "resnet":
+            model = UNetWithResnet50Encoder()
+        else:
+            raise Exception('Undefined architecture')
 
-    if config.cuda:
-        model = model.cuda()
-        # model = torch.nn.DataParallel(model)
-        cudnn.benchmark = False
+        print("Loading weights from checkpoint (" + model_path + ")")
+        net_param = torch.load(model_path, map_location=f'cuda:{gpu_idx}')
+        model.load_state_dict(copyStateDict(net_param["craft"]))
+
+        if config.cuda:
+            model = model.cuda()
+            # model = torch.nn.DataParallel(model)
+            cudnn.benchmark = False
+    else:
+        # check buffer for distributed evaluation
+        assert all(v is None for v in buffer), 'Buffer already filled with another value'
 
     model.eval()
+    # model = model.cuda()
+    # cudnn.benchmark = False
     # ------------------------------------------------------------------------------------------------------------------#
 
     total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_iou(test_set, config)
+    slice_idx = len(total_imgs_bboxes_gt) // gpu_count
 
-
+    # last gpu
+    if gpu_idx == gpu_count - 1:
+        piece_imgs_path = total_imgs_path[gpu_idx * slice_idx:]
+    else:
+        piece_imgs_path = total_imgs_path[gpu_idx * slice_idx: (gpu_idx + 1) * slice_idx]
 
     # -----------------------------------------------------------------------------------------------------------------#
     total_img_bboxes_pre = []
-    for k, img_path in enumerate(total_imgs_path):
+    for k, img_path in enumerate(tqdm(piece_imgs_path)):
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         single_img_bbox = []
@@ -504,6 +523,9 @@ def main_eval(model_path, backbone, config, evaluator, result_dir):
             box_info = {"points": box, "text": "###", "ignore": False}
             single_img_bbox.append(box_info)
         total_img_bboxes_pre.append(single_img_bbox)
+        if buffer is not None:
+            buffer[gpu_idx * slice_idx + k] = single_img_bbox
+        # print(sum([element is not None for element in buffer]))
         # -------------------------------------------------------------------------------------------------------------#
 
         if config.vis_opt:
@@ -519,7 +541,11 @@ def main_eval(model_path, backbone, config, evaluator, result_dir):
 
     # ------------------------------------------------------------------------------------------------------------------#
     # wait until buffer is full filled
-
+    if buffer is not None:
+        while None in buffer:
+            continue
+        assert all(v is not None for v in buffer), 'Buffer not filled'
+        total_img_bboxes_pre = buffer
 
     # print('Predict bbox points completed.')
     results = []
@@ -543,7 +569,7 @@ def main_eval(model_path, backbone, config, evaluator, result_dir):
 
 
 # NOTE
-def main_cleval(model_path, backbone, config, result_dir):
+def main_cleval(model_path, backbone, config, result_dir, model, mode):
 
     # test 폴더에 대한 학습된 모델의 f1-score를 계산
     # test 폴더에 대한 model의 output 시각화
@@ -553,52 +579,57 @@ def main_cleval(model_path, backbone, config, result_dir):
     # config : test에 필요한 configuration, dict type
     # evaluator : test function
 
-    # print(len(total_imgs_bboxes_gt)) # 500
-    # print('Current cuda device:', torch.cuda.current_device())
-    # print('Total gpu :', torch.cuda.device_count())
-    # gpu_idx = torch.cuda.current_device()
-    # gpu_count = torch.cuda.device_count()
-    # torch.cuda.set_device(gpu_idx)
-
     if not os.path.exists(result_dir):
-        os.makedirs(result_dir)
+        os.makedirs(result_dir, exist_ok=True)
+
     test_set = config.test_data_dir.split("/")[-2].lower()
 
-    # load model
-    if backbone == "vgg":
-        model = CRAFT()  # initialize
-    elif backbone == "resnet":
-        model = UNetWithResnet50Encoder()
+    if mode == 'weak_supervision':
+        gpu_count = torch.cuda.device_count() // 2
     else:
-        raise Exception('Undefined architecture')
+        gpu_count = torch.cuda.device_count()
 
-    print("Loading weights from checkpoint (" + model_path + ")")
-    net_param = torch.load(model_path)
-    try:
-        model.load_state_dict(copyStateDict(net_param["craft"]))
-    except :
-        model.load_state_dict(copyStateDict(net_param))
+    gpu_idx = torch.cuda.current_device()
+    torch.cuda.set_device(gpu_idx)
 
-    if config.cuda:
-        model = model.cuda()
-        # model = torch.nn.DataParallel(model)
-        cudnn.benchmark = False
+    if model is None:
+        # load model
+        if backbone == "vgg":
+            model = CRAFT()  # initialize
+        elif backbone == "resnet":
+            model = UNetWithResnet50Encoder()
+        else:
+            raise Exception('Undefined architecture')
+
+        print("Loading weights from checkpoint (" + model_path + ")")
+        net_param = torch.load(model_path, map_location=f'cuda:{gpu_idx}')
+        try:
+            model.load_state_dict(copyStateDict(net_param["craft"]))
+        except :
+            model.load_state_dict(copyStateDict(net_param))
+
+        if config.cuda:
+            model = model.cuda()
+            # model = torch.nn.DataParallel(model)
+            cudnn.benchmark = False
 
     model.eval()
+    # model = model.cuda()
+    # cudnn.benchmark = False
     # ------------------------------------------------------------------------------------------------------------------#
 
     total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_cl(test_set, config)
-    #slice_idx = len(total_imgs_bboxes_gt) // gpu_count
+    slice_idx = len(total_imgs_bboxes_gt) // gpu_count
 
-    # # last gpu
-    # if gpu_idx == gpu_count - 1:
-    #     piece_imgs_path = total_imgs_path[gpu_idx * slice_idx:]
-    # else:
-    #     piece_imgs_path = total_imgs_path[gpu_idx * slice_idx: (gpu_idx + 1) * slice_idx]
+    # last gpu
+    if gpu_idx == gpu_count - 1:
+        piece_imgs_path = total_imgs_path[gpu_idx * slice_idx:]
+    else:
+        piece_imgs_path = total_imgs_path[gpu_idx * slice_idx: (gpu_idx + 1) * slice_idx]
 
     # -----------------------------------------------------------------------------------------------------------------#
-    # total_img_bboxes_pre = []
-    for k, img_path in enumerate(total_imgs_path):
+
+    for k, img_path in enumerate(piece_imgs_path):
 
         image = cv2.imread(img_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -642,9 +673,13 @@ def main_cleval(model_path, backbone, config, result_dir):
     else:
        GT_BOX_TYPE = "QUAD"
 
+    while len([filename for filename in os.listdir(result_dir) if filename[-9:] == '_pred.txt']) != len(total_imgs_path):
+        # print(f'flag{len([filename for filename in os.listdir(result_dir) if filename[-9:] == "_pred.txt"])}')
+        continue
+
     metrics = clEval.main(gt_cl_dir, result_dir, GT_BOX_TYPE=GT_BOX_TYPE,PRED_BOX_TYPE="QUAD")
 
-    print('Finish : detection evaluation' + '-' * 50)
+    print('Finish : cleval evaluation' + '-' * 50)
 
     # save result
     with open(os.path.join(result_dir,"result.txt"), "w") as f:
@@ -652,15 +687,151 @@ def main_cleval(model_path, backbone, config, result_dir):
 
     return metrics
 
-def cal_eval(config, data, res_dir_name, opt):
+#
+# # NOTE
+# def main_cleval(model_path, backbone, config, result_dir, model, mode):
+#
+#     # test 폴더에 대한 학습된 모델의 f1-score를 계산
+#     # test 폴더에 대한 model의 output 시각화
+#     # TODO loss 까지 구할 수 있도록?
+#
+#     # model_path : 학습된 모델의 저장 경로
+#     # config : test에 필요한 configuration, dict type
+#     # evaluator : test function
+#
+# <<<<<<< HEAD
+#     # print(len(total_imgs_bboxes_gt)) # 500
+#     # print('Current cuda device:', torch.cuda.current_device())
+#     # print('Total gpu :', torch.cuda.device_count())
+#     # gpu_idx = torch.cuda.current_device()
+#     # gpu_count = torch.cuda.device_count()
+#     # torch.cuda.set_device(gpu_idx)
+#
+# =======
+# >>>>>>> origin/feature/prescrip_eval
+#     if not os.path.exists(result_dir):
+#         os.makedirs(result_dir, exist_ok=True)
+#
+#     test_set = config.test_data_dir.split("/")[-2].lower()
+#
+#     if mode == 'weak_supervision':
+#         gpu_count = torch.cuda.device_count() // 2
+#     else:
+#         gpu_count = torch.cuda.device_count()
+#
+#     gpu_idx = torch.cuda.current_device()
+#     torch.cuda.set_device(gpu_idx)
+#
+#     if model is None:
+#         # load model
+#         if backbone == "vgg":
+#             model = CRAFT()  # initialize
+#         elif backbone == "resnet":
+#             model = UNetWithResnet50Encoder()
+#         else:
+#             raise Exception('Undefined architecture')
+#
+#         print("Loading weights from checkpoint (" + model_path + ")")
+#         net_param = torch.load(model_path, map_location=f'cuda:{gpu_idx}')
+#         try:
+#             model.load_state_dict(copyStateDict(net_param["craft"]))
+#         except :
+#             model.load_state_dict(copyStateDict(net_param))
+#
+#         if config.cuda:
+#             model = model.cuda()
+#             # model = torch.nn.DataParallel(model)
+#             cudnn.benchmark = False
+#
+#     model.eval()
+#     # model = model.cuda()
+#     # cudnn.benchmark = False
+#     # ------------------------------------------------------------------------------------------------------------------#
+#
+#     total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_cl(test_set, config)
+#     #slice_idx = len(total_imgs_bboxes_gt) // gpu_count
+#
+#     # # last gpu
+#     # if gpu_idx == gpu_count - 1:
+#     #     piece_imgs_path = total_imgs_path[gpu_idx * slice_idx:]
+#     # else:
+#     #     piece_imgs_path = total_imgs_path[gpu_idx * slice_idx: (gpu_idx + 1) * slice_idx]
+#
+#     # -----------------------------------------------------------------------------------------------------------------#
+# <<<<<<< HEAD
+#     # total_img_bboxes_pre = []
+#     for k, img_path in enumerate(total_imgs_path):
+# =======
+#
+#     for k, img_path in enumerate(piece_imgs_path):
+# >>>>>>> origin/feature/prescrip_eval
+#
+#         image = cv2.imread(img_path)
+#         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+#         img_name = img_path.split('/')[-1].split(".jpg")[0]
+#         bboxes, polys, score_text = test_net(
+#             model,
+#             image,
+#             config.text_threshold,
+#             config.link_threshold,
+#             config.low_text,
+#             config.cuda,
+#             config.poly,
+#             config.canvas_size,
+#             config.mag_ratio,
+#         )
+#
+#         # -------------------------------------------------------------------------------------------------------------#
+#
+#         if config.vis_opt:
+#             viz_test(
+#                 image,
+#                 score_text,
+#                 pre_box=polys,
+#                 gt_box=total_imgs_bboxes_gt[k],
+#                 img_name=img_name,
+#                 result_dir=result_dir,
+#                 test_folder_name=test_set,
+#             )
+#
+#         # -------------------------------------------------------------------------------------------------------------#
+#
+#         result_pred = result_to_clEval(bboxes)
+#         make_txt(result_pred, result_dir, img_name, dtype='pred')
+#         # print(len([filename for filename in os.listdir(result_dir) if filename[-9:] == '_pred.txt']), len(total_imgs_path))
+#     # -----------------------------------------------------------------------------------------------------------------#
+#
+#     gt_cl_dir = load_gt_cl_dir(config, data=test_set)
+#
+#     if test_set == "icdar2013":
+#        GT_BOX_TYPE = "LTRB"
+#     else:
+#        GT_BOX_TYPE = "QUAD"
+#
+#     while len([filename for filename in os.listdir(result_dir) if filename[-9:] == '_pred.txt']) != len(total_imgs_path):
+#         # print(f'flag{len([filename for filename in os.listdir(result_dir) if filename[-9:] == "_pred.txt"])}')
+#         continue
+#
+#     metrics = clEval.main(gt_cl_dir, result_dir, GT_BOX_TYPE=GT_BOX_TYPE,PRED_BOX_TYPE="QUAD")
+#
+#     print('Finish : cleval evaluation' + '-' * 50)
+#
+#     # save result
+#     with open(os.path.join(result_dir,"result.txt"), "w") as f:
+#         f.write(json.dumps(metrics))
+#
+#     return metrics
+
+def cal_eval(config, data, res_dir_name, opt, mode):
     evaluator = DetectionIoUEvaluator()
+    # import ipdb; ipdb.set_trace()
     test_config = DotDict(config.test[data])
     res_dir = os.path.join(os.path.join("exp", args.yaml), "{}".format(res_dir_name))
 
     if opt == "iou_eval":
-        main_eval(config.test.trained_model, config.train.backbone, test_config, evaluator, res_dir)
+        main_eval(config.test.trained_model, config.train.backbone, test_config, evaluator, res_dir, buffer=None, model=None, mode=mode)
     elif opt == "cl_eval":
-        main_cleval(config.test.trained_model, config.train.backbone, test_config, res_dir)
+        main_cleval(config.test.trained_model, config.train.backbone, test_config, res_dir, model=None, mode=mode)
     else:
         print("not evaluation")
 
@@ -671,7 +842,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--yaml",
         "--yaml_file_name",
-        default="ic15_train",
+        default="syn_train_base_en_ko_ai",
         type=str,
         help="Load configuration",
     )
@@ -686,8 +857,9 @@ if __name__ == "__main__":
         # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
         wandb.config.update(config)
 
-
-    cal_eval(config, "icdar2015", "res-en-ko-ai-cl", opt="cl_eval")
-    cal_eval(config, "icdar2013", "resnet-en-ko-ai-13-cl", opt="cl_eval")
-
+    val_result_dir_name = args.yaml
+    # cal_eval(config, "icdar2013", val_result_dir_name + '-ic13-iou', opt="iou_eval", mode=None)
+    # cal_eval(config, "icdar2013", val_result_dir_name + '-ic13-cl', opt="cl_eval", mode=None)
+    #cal_eval(config, "icdar2015", "resnet-en-ko-ai-15-iou", opt="iou_eval", mode=None)
+    cal_eval(config, "prescription", val_result_dir_name + '-pre-cl', opt="cl_eval", mode=None)
 

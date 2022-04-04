@@ -8,7 +8,7 @@ data_dir:
   synthtext_gt: NULL
   synthtext_kor : "/data/SynthText-KR"
   prescrip_train : "/data/prescription-train/"
-  ic15: "/data1/ICDAR2015/"
+  ic15: "/data/ICDAR2015/"
   ic15_gt: NULL
 
 train:
@@ -113,6 +113,7 @@ train:
 test:
   trained_model : null
   icdar2013:
+    test_set_size: 233
     test_data_dir : "/data/ICDAR2013/"
     text_threshold: 0.85 # ICDAR2015 0.85
     low_text: 0.5 # ICDAR2015 0.5
@@ -122,7 +123,19 @@ test:
     poly: False
     cuda: True
     vis_opt: True
+  icdar2015:
+    test_set_size: 500
+    cuda: True
+    vis_opt: True
+    test_data_dir: "/data/ICDAR2015/"
+    text_threshold: 0.85 # ICDAR2015 0.85
+    low_text: 0.5 # ICDAR2015 0.5
+    link_threshold: 0.2 # ICDAR2013: 0.2
+    canvas_size: 2240
+    mag_ratio: 1.75
+    poly: False
   prescription:
+    test_set_size: 87
     test_data_dir: "/data/prescription/"
     text_threshold: 0.1 # ICDAR2015 0.85
     low_text: 0.25 # ICDAR2015 0.5

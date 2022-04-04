@@ -22,11 +22,13 @@ from model.craft_resnet import UNetWithResnet50Encoder
 from metrics.eval_det_iou import DetectionIoUEvaluator
 from utils.util import copyStateDict, save_parser
 
+
 class Trainer(object):
     def __init__(self, config, gpu):
 
         self.config = config
         self.gpu = gpu
+        self.mode = None
         self.trn_loader, self.trn_sampler = self.get_trn_loader()
         self.net_param = self.get_load_param(gpu)
 
@@ -108,7 +110,7 @@ class Trainer(object):
 
 
     def adjust_learning_rate(self, optimizer, gamma, step, lr):
-        """Sets the learning rate to the initial LR decayed by 10 at every
+        """Sets the learning rate to the initial LR decayed by gamma value at every
             specified step
         # Adapted from PyTorch Imagenet example:
         # https://github.com/pytorch/examples/blob/master/imagenet/main.py
@@ -128,7 +130,7 @@ class Trainer(object):
             raise Exception("Undefined loss")
         return criterion
 
-    def iou_eval(self, dataset, train_step, save_param_path, buffer):
+    def iou_eval(self, dataset, train_step, save_param_path, buffer, model):
         # Input dataset : "icdar2013" |  "icdar2015" | "prescription"
 
         test_config = DotDict(self.config.test[dataset])
@@ -138,10 +140,11 @@ class Trainer(object):
         )
 
         evaluator = DetectionIoUEvaluator()
+
         metrics = main_eval(
-            save_param_path, self.config.train.backbone, test_config, evaluator, val_result_dir, buffer
+            save_param_path, self.config.train.backbone, test_config, evaluator, val_result_dir, buffer, model, self.mode
         )
-        if self.config.wandb_opt:
+        if self.gpu == 0 and self.config.wandb_opt:
             wandb.log(
                 {
                     "{} IoU Recall".format(dataset): np.round(metrics["recall"], 3),
@@ -150,7 +153,7 @@ class Trainer(object):
                 }
             )
 
-    def cleval(self, dataset, train_step, save_param_path):
+    def cleval(self, dataset, train_step, save_param_path, model):
         # Input dataset : "icdar2013" |  "icdar2015" | "prescription"
 
         test_config = DotDict(self.config.test[dataset])
@@ -160,10 +163,10 @@ class Trainer(object):
         )
 
         metrics = main_cleval(
-            save_param_path, self.config.train.backbone, test_config, val_result_dir
+            save_param_path, self.config.train.backbone, test_config, val_result_dir, model, self.mode
         )
 
-        if self.config.wandb_opt:
+        if self.gpu == 0 and self.config.wandb_opt:
             wandb.log(
                 {
                     "{} CLeval Recall".format(dataset): np.round(metrics["recall"], 3),
@@ -185,7 +188,7 @@ class Trainer(object):
         elif self.config.train.backbone == "resnet":
             craft = UNetWithResnet50Encoder(pretrained=True, amp=self.config.train.amp)
         else:
-            raise Exception('Undefined `architec`ture')
+            raise Exception('Undefined architecture')
 
         # load model
         if self.config.train.ckpt_path is not None:
@@ -195,6 +198,7 @@ class Trainer(object):
         craft = torch.nn.parallel.DistributedDataParallel(craft, device_ids=[self.gpu])
 
         torch.backends.cudnn.benchmark = True
+
         # OPTIMIZER----------------------------------------------------------------------------------------------------#
 
         optimizer = optim.Adam(
@@ -309,7 +313,7 @@ class Trainer(object):
                           "training_loss: {:.5f}, avg_batch_time: {:.5f}"
                           .format(time.strftime('%Y-%m-%d:%H:%M:%S',time.localtime(time.time())),
                                   train_step, whole_training_step, training_lr, mean_loss, avg_batch_time))
-                    if self.config.wandb_opt:
+                    if self.gpu == 0 and self.config.wandb_opt:
                         wandb.log({'train_step': train_step, 'mean_loss': mean_loss})
 
                 if train_step % self.config.train.eval_interval == 0 and train_step != 0:
@@ -345,9 +349,9 @@ class Trainer(object):
                     torch.save(save_param_dic, save_param_path)
 
                     # validation
-                    self.iou_eval("icdar2013", train_step, save_param_path, buffer_dict["icdar2013"])
-                    self.cleval("icdar2013", train_step, save_param_path)
-                    self.cleval("prescription", train_step, save_param_path)
+                    self.iou_eval("icdar2013", train_step, save_param_path, buffer_dict["icdar2013"], craft)
+                    self.cleval("icdar2013", train_step, save_param_path, craft)
+                    self.cleval("prescription", train_step, save_param_path, craft)
                     # self.iou_eval("prescription", train_step, save_param_path, buffer_dict["prescription"])
                     # self.cleval("icdar2015", train_step, save_param_path)
 
@@ -375,7 +379,7 @@ class Trainer(object):
             torch.save(save_param_dic, save_param_path)
             # NOTE
             self.iou_eval("icdar2013", train_step, save_param_path)
-            #self.cleval("icdar2013", train_step, save_param_path)
+            self.cleval("icdar2013", train_step, save_param_path)
             self.cleval("prescription", train_step, save_param_path)
 
             if self.config.wandb_opt:
@@ -398,15 +402,10 @@ def main():
 
     args = parser.parse_args()
 
-
     # load configure
+    exp_name = args.yaml
     config = load_yaml(args.yaml)
 
-    if config["wandb_opt"]:
-        # Apply config to wandb
-        # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
-        wandb.init(project="craft-stage1", entity="gmuffiness", name=args.yaml)
-        wandb.config.update(config)
     print("-"*20+" Options "+"-"*20)
     print(yaml.dump(config))
     print("-" * 40)
@@ -424,6 +423,7 @@ def main():
 
 
     ngpus_per_node = torch.cuda.device_count()
+    print(f'Total device num : {ngpus_per_node}')
     world_size = ngpus_per_node
 
     manager = mp.Manager()
@@ -431,16 +431,22 @@ def main():
     buffer2 = manager.list([None] * config["test"]["icdar2015"]["test_set_size"])
     buffer3 = manager.list([None] * config["test"]["prescription"]["test_set_size"])
     buffer_dict = {"icdar2013":buffer1, "icdar2015":buffer2, "prescription":buffer3}
-    torch.multiprocessing.spawn(main_worker, nprocs=ngpus_per_node, args=(args.port, ngpus_per_node, config, buffer_dict, ))
+    torch.multiprocessing.spawn(main_worker, nprocs=ngpus_per_node, args=(args.port, ngpus_per_node, config, buffer_dict, exp_name, ))
 
 
-def main_worker(gpu, port, ngpus_per_node, config, buffer_dict):
+def main_worker(gpu, port, ngpus_per_node, config, buffer_dict, exp_name):
 
     torch.distributed.init_process_group(
         backend='nccl',
         init_method='tcp://127.0.0.1:' + port,
         world_size=ngpus_per_node,
         rank=gpu)
+
+    # Apply config to wandb
+    if gpu == 0 and config["wandb_opt"]:
+        # wandb.init(project="jm-test", entity="pingu", name=args.yaml)
+        wandb.init(project="craft-stage1", entity="gmuffiness", name=exp_name)
+        wandb.config.update(config)
 
     batch_size = int(config["train"]["batch_size"] / ngpus_per_node)
     config["train"]["batch_size"] = batch_size
