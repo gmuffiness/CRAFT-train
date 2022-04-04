@@ -15,7 +15,6 @@ train:
   backbone: resnet
   syn_dataset : ["synthtext", "synthtext_kor"]
   real_dataset: prescription
-  pre_crop : True
   ckpt_path: "/nas/home/shwang/workspace/CRAFT-Refactoring/exp/syn_en_ko_resnet/CRAFT_clr_amp_60000.pth"
   #ckpt_path: "/nas/home/jihyokim/jm/CRAFT-Refactoring/config/shwang_test26_CRAFT_clr_amp_60000.pth"
   eval_interval: 1000
