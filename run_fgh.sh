@@ -1,7 +1,7 @@
 # sed -i -e 's/\r$//' run_fgh.sh
 #CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python3 trainIC15_ddp.py --yaml=$EXP_NAME --port=2348
-EXP_NAME=stage1_train_ai_vgg_debug4
+EXP_NAME=ic15_train_report3
 yaml_path="config/$EXP_NAME.yaml"
-cp config/syn_train_base_en_ko_ai.yaml $yaml_path
-CUDA_VISIBLE_DEVICES=0,3 python3 trainSynth.py --yaml=$EXP_NAME --port=2348
+cp config/ic15_train.yaml $yaml_path
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python3 trainIC15_ddp.py --yaml=$EXP_NAME --port=2348
 rm "config/$EXP_NAME.yaml"

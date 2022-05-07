@@ -4,11 +4,11 @@ vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-0324/exp/viz/test"
 wandb_opt: True
 
 data_dir:
-  synthtext: "/data1/SynthText/"
+  synthtext: "/data/SynthText/"
   synthtext_gt: NULL
-  synthtext_kor : "/data1/SynthText-KR"
+  synthtext_kor : "/data/SynthText-KR"
   prescrip_train : "/nas/datahub/prescription-train/"
-  ic15: "/data1/ICDAR2015/"
+  ic15: "/data/ICDAR2015/"
   ic15_gt: NULL
 
 train:
@@ -110,10 +110,10 @@ train:
         option: True
 
 test:
-  trained_model : null
+  trained_model : "/nas/home/jihyokim/workspace/craft/craft-refactoring-jm-220405/exp/prescription-enlarge-region-0.3/ic15_pseudo_label/CRAFT_clr_amp_50000.pth"
   icdar2013:
     test_set_size: 233
-    test_data_dir : "/data1/ICDAR2013/"
+    test_data_dir : "/data/ICDAR2013/"
     text_threshold: 0.85 # ICDAR2015 0.85
     low_text: 0.5 # ICDAR2015 0.5
     link_threshold: 0.2 # ICDAR2013: 0.2
@@ -121,12 +121,12 @@ test:
     mag_ratio: 1.5
     poly: False
     cuda: True
-    vis_opt: True
+    vis_opt: False
   icdar2015:
     test_set_size: 500
     cuda: True
-    vis_opt: True
-    test_data_dir: "/data1/ICDAR2015/"
+    vis_opt: False
+    test_data_dir: "/data/ICDAR2015/"
     text_threshold: 0.85 # ICDAR2015 0.85
     low_text: 0.5 # ICDAR2015 0.5
     link_threshold: 0.2 # ICDAR2013: 0.2
@@ -135,12 +135,12 @@ test:
     poly: False
   prescription:
     test_set_size: 87
-    test_data_dir: "/data1/prescription/"
-    text_threshold: 0.1 # ICDAR2015 0.85
-    low_text: 0.25 # ICDAR2015 0.5
-    link_threshold: 0.4 # ICDAR2013: 0.2
+    test_data_dir: "/data/prescription/"
+    text_threshold: 0.7092456103601525
+    low_text: 0.4594241847518371
+    link_threshold: 0.09586896477835416
     canvas_size: 2560
     mag_ratio: 1.
     poly: False
     cuda: True
-    vis_opt: True
+    vis_opt: False

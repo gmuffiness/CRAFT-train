@@ -469,7 +469,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--yaml",
         "--yaml_file_name",
-        default="ic15_train",
+        default="syn_train_base_en_ko_ai",
         type=str,
         help="Load configuration",
     )

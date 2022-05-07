@@ -11,7 +11,7 @@ data_dir:
   prescription: "/data/prescription/"
 
 train:
-  backbone : vgg
+  backbone : resnet
   dataset: ["synthtext", "synthtext_kor", "ai_hub"] # option : [synthtext, synthtext_kor, ai_hub]
   ckpt_path: null
   eval_interval: 500
@@ -104,11 +104,11 @@ train:
 
 
 test:
-  trained_model: "/nas/home/gmuffiness/workspace/ocr_related/daintlab-CRAFT-Reimplementation/clean-code/exp/syn_train_base_en_ko_ai_v2_vgg_batch_40/CRAFT_clr_amp_54000.pth"
+  trained_model: "/nas/home/jihyokim/workspace/craft/craft-refactoring-jm-220405/exp/prescription-enlarge-region-0.3/ic15_pseudo_label/CRAFT_clr_amp_50000.pth"
   icdar2013:
     test_set_size: 233
     cuda: True
-    vis_opt: True
+    vis_opt: False
     test_data_dir : "/data/ICDAR2013/"
     text_threshold: 0.85 # ICDAR2015 0.85
     low_text: 0.5 # ICDAR2015 0.5
@@ -119,7 +119,7 @@ test:
   icdar2015:
     test_set_size: 500
     cuda: True
-    vis_opt: True
+    vis_opt: False
     test_data_dir: "/data/ICDAR2015/"
     text_threshold: 0.85 # ICDAR2015 0.85
     low_text: 0.5 # ICDAR2015 0.5
@@ -130,11 +130,11 @@ test:
   prescription:
     test_set_size: 87
     cuda: True
-    vis_opt: True
+    vis_opt: False
     test_data_dir: "/data/prescription/"
-    text_threshold: 0.1
-    low_text: 0.25
-    link_threshold: 0.4
+    text_threshold: 0.7
+    low_text: 0.4
+    link_threshold: 0.1
     canvas_size: 2560
     mag_ratio: 1.
     poly: False

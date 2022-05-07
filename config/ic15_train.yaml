@@ -1,21 +1,21 @@
-results_dir: "./exp/"
-#vis_test_dir: "/nas/home/jihyokim/jm/CRAFT-Refactoring-v2/exp/viz"
-vis_test_dir: "/nas/home/gmuffiness/result/debug_ic15_weak_supervision_temp"
-wandb_opt: False
+wandb_opt: True
 
+results_dir: "./exp/"
+vis_test_dir: "/nas/home/gmuffiness/result/debug_ic15_weak_supervision_temp"
 data_dir:
   synthtext: "/data/SynthText/"
   synthtext_gt: NULL
   ic15: "/data/ICDAR2015/"
   ic15_gt: NULL
 #  ic15_gt: "/data/ICDAR2015_official_supervision_v3/0"
-  ic13: "/data/ICDAR2013/"
 
 train:
   backbone : vgg
-  ckpt_path: "/nas/home/jihyokim/jm/CRAFT-Refactoring/config/shwang_test26_CRAFT_clr_amp_60000.pth"
-  eval_interval: 500
-  batch_size: 10
+  syn_dataset: ["synthtext"]
+  real_dataset: icdar2015
+  ckpt_path: "/nas/home/gmuffiness/workspace/ocr_related/daintlab-CRAFT-Reimplementation/clean-code/exp/syn_train_report2/CRAFT_clr_amp_50000.pth"
+  eval_interval: 1000
+  batch_size: 48
   st_iter: 0
   end_iter: 50000
   lr: 0.0001
@@ -35,7 +35,7 @@ train:
     mean: [0.485, 0.456, 0.406]
     variance: [0.229, 0.224, 0.225]
     enlarge_region : [0.5, 0.5] # x axis, y axis
-    enlarge_affinity: [0., 0.5]
+    enlarge_affinity: [0.5, 0.5]
     gauss_init_size: 200
     gauss_sigma: 40
     watershed:
@@ -53,8 +53,6 @@ train:
         option: False
       random_crop:
         version: "random_resize_crop_synth"
-        scale: [0.333, 1.0]
-        ratio: [0.75, 1.333]
         option: True
       random_horizontal_flip:
         option: False
@@ -88,36 +86,14 @@ train:
 
 test:
   trained_model : null
-  icdar2013:
-    test_set_size: 233
-    test_data_dir : "/data/ICDAR2013/"
-    text_threshold: 0.85 # ICDAR2015 0.85
-    low_text: 0.5 # ICDAR2015 0.5
-    link_threshold: 0.2 # ICDAR2013: 0.2
-    canvas_size: 960
-    mag_ratio: 1.5
-    poly: False
-    cuda: True
-    vis_opt: True
   icdar2015:
     test_set_size: 500
     test_data_dir: "/data/ICDAR2015/"
-    text_threshold: 0.85 # ICDAR2015 0.85
-    low_text: 0.5 # ICDAR2015 0.5
-    link_threshold: 0.2 # ICDAR2013: 0.2
+    text_threshold: 0.85
+    low_text: 0.5
+    link_threshold: 0.2
     canvas_size: 2240
     mag_ratio: 1.75
     poly: False
     cuda: True
-    vis_opt: True
-  prescription:
-    test_set_size: 87
-    test_data_dir: "/data/prescription/"
-    text_threshold: 0.1 # ICDAR2015 0.85
-    low_text: 0.25 # ICDAR2015 0.5
-    link_threshold: 0.4 # ICDAR2013: 0.2
-    canvas_size: 2560
-    mag_ratio: 1.
-    poly: False
-    cuda: True
-    vis_opt: True
+    vis_opt: False
