@@ -1,4 +1,11 @@
 # CRAFT-train
+On the official CRAFT github, there are many people who want to train CRAFT models. 
+
+However, the training code is not published in the official CRAFT repository. 
+
+There are other reproduced codes, but there is a gap between their performance and performance reported in the original paper. (https://arxiv.org/pdf/1904.01941.pdf) 
+
+The trained model with this code recorded a level of performance similar to that of the original paper.
 
 ```bash
 ├── config
@@ -45,6 +52,9 @@ CUDA_VISIBLE_DEVICES=0,1 python3 trainIC15.py --yaml=ic15_train   # run weak-sup
 * ```--yaml``` : configuration file name
 
 ### Evaluation
+* In the official repository issues, the author mentioned that the first row setting F1-score is around 0.75.
+* In the official paper, it is stated that the result F1-score of the second row setting is 0.87.
+    * If you adjust post-process parameter 'text_threshold' from 0.85 to 0.75, then F1-score reaches to 0.856.
 
 | Training Dataset   | Evaluation Dataset   | Precision  | Recall  | F1-score  | pretrained model  |
 | ------------- |-----|:-----:|:-----:|:-----:|-----:|
