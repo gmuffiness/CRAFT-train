@@ -314,7 +314,7 @@ class SynthTextDataSet(CraftBaseDataset):
         )
 
 
-class ICDAR2015(CraftBaseDataset):
+class CustomDataset(CraftBaseDataset):
     def __init__(
         self,
         output_size,
@@ -481,7 +481,7 @@ class ICDAR2015(CraftBaseDataset):
 
     def load_saved_gt_score(self, index):
         """
-        Load pre-saved official CRAFT model's region, affinity scores to train IC15
+        Load pre-saved official CRAFT model's region, affinity scores to train
         word_level_char_bbox's shape : [word_num, [char_num_in_one_word, 4, 2]]
         :rtype region_score: np.float32
         :rtype affinity_score: np.float32

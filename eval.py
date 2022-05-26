@@ -190,6 +190,11 @@ def load_test_dataset_iou(test_folder_name, config):
             dataFolder=config.test_data_dir
         )
 
+    elif test_folder_name == "custom_data":
+        total_bboxes_gt, total_img_path = load_icdar2015_gt(
+            dataFolder=config.test_data_dir
+        )
+
     else:
         print("not found test dataset")
         return None, None
@@ -211,21 +216,12 @@ def viz_test(img, pre_output, pre_box, gt_box, img_name, result_dir, test_folder
         save_result_2015(
             img_name, img[:, :, ::-1].copy(), pre_output, pre_box, gt_box, result_dir
         )
-    else:
-        print("not found test dataset")
-
-
-def load_gt_cl_dir(config, data):
-    if data == "icdar2013":
-        gt_cl_dir = os.path.join(config.test_data_dir, "Challenge2_Test_Task1_GT_cl")
-    elif data == "icdar2015":
-        gt_cl_dir = os.path.join(
-            config.test_data_dir, "ch4_test_localization_transcription_gt_cl"
+    elif test_folder_name == "custom_data":
+        save_result_2015(
+            img_name, img[:, :, ::-1].copy(), pre_output, pre_box, gt_box, result_dir
         )
     else:
-        gt_cl_dir = None
-        print("no dataset")
-    return gt_cl_dir
+        print("not found test dataset")
 
 
 def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model, mode):
@@ -233,10 +229,9 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model
     if not os.path.exists(result_dir):
         os.makedirs(result_dir, exist_ok=True)
 
-    test_set = config.test_data_dir.split("/")[-2].lower()
-    total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_iou(test_set, config)
+    total_imgs_bboxes_gt, total_imgs_path = load_test_dataset_iou("custom_data", config)
 
-    if mode == "weak_supervision":
+    if mode == "weak_supervision" and torch.cuda.device_count() != 1:
         gpu_count = torch.cuda.device_count() // 2
     else:
         gpu_count = torch.cuda.device_count()
@@ -262,10 +257,11 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model
 
     # Distributed evaluation in the middle of training time
     else:
-        # check all buffer value is None for distributed evaluation
-        assert all(
-            v is None for v in buffer
-        ), "Buffer already filled with another value."
+        if buffer is not None:
+            # check all buffer value is None for distributed evaluation
+            assert all(
+                v is None for v in buffer
+            ), "Buffer already filled with another value."
         slice_idx = len(total_imgs_bboxes_gt) // gpu_count
 
         # last gpu
@@ -316,7 +312,7 @@ def main_eval(model_path, backbone, config, evaluator, result_dir, buffer, model
                 gt_box=total_imgs_bboxes_gt[k],
                 img_name=img_path,
                 result_dir=result_dir,
-                test_folder_name=test_set,
+                test_folder_name="custom_data",
             )
 
     # When distributed evaluation mode, wait until buffer is full filled
@@ -361,7 +357,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--yaml",
         "--yaml_file_name",
-        default="ic15_train_report4",
+        default="custom_data_train",
         type=str,
         help="Load configuration",
     )
@@ -378,7 +374,7 @@ if __name__ == "__main__":
     val_result_dir_name = args.yaml
     cal_eval(
         config,
-        "icdar2015",
+        "custom_data",
         val_result_dir_name + "-ic15-iou",
         opt="iou_eval",
         mode=None,
