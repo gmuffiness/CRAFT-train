@@ -222,6 +222,8 @@ def load_icdar2015_gt(dataFolder, isTraing=False):
             .replace(".txt", ".jpg")
             .replace("gt_", "")
         )
+        if not os.path.exists(img_path):
+            img_path = img_path.replace(".jpg", ".png")
         image = cv2.imread(img_path)
         lines = open(gt_path, encoding="utf-8").readlines()
         single_img_bboxes = []

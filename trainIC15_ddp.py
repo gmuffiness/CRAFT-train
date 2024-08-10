@@ -457,7 +457,11 @@ def main():
         "config/" + args.yaml + ".yaml", os.path.join(res_dir, args.yaml) + ".yaml"
     )
 
-    ngpus_per_node = torch.cuda.device_count() // 2
+    if config["data_dir"]["ic15_gt"] is None:
+        ngpus_per_node = torch.cuda.device_count() // 2
+    else:
+        ngpus_per_node = torch.cuda.device_count()
+
     print(f'Total device num : {ngpus_per_node}')
 
     manager = mp.Manager()
